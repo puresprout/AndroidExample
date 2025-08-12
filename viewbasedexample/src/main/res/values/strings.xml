@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">View Based Android Example</string>
+
+    <string name="count">Count: %1$s</string>
+</resources>

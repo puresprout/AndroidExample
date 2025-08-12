@@ -22,3 +22,4 @@ dependencyResolutionManagement {
 rootProject.name = "Android(Example"
 include(":app")
 include(":common")
+include(":viewbasedexample")
