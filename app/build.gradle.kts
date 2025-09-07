@@ -37,6 +37,12 @@ android {
     buildFeatures {
         compose = true
     }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
 }
 
 dependencies {
@@ -60,4 +66,5 @@ dependencies {
     implementation(project(":common"))
 
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    testImplementation(libs.robolectric)
 }
