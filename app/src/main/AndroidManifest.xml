@@ -12,6 +12,17 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.AndroidExample">
         <activity
+            android:name=".service.ServiceActivity"
+            android:exported="false"
+            android:label="@string/title_activity_service"
+            android:theme="@style/Theme.AndroidExample" />
+
+        <service
+            android:name=".service.CountService"
+            android:enabled="true"
+            android:exported="false" />
+
+        <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
