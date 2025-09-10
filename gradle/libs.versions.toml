@@ -41,3 +41,8 @@ android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 android-library = { id = "com.android.library", version.ref = "agp" }
+
+# 버전 지정하면 오류
+# Error resolving plugin [id: 'org.jetbrains.kotlin.plugin.parcelize', version: '2.0.21']
+# > The request for this plugin could not be satisfied because the plugin is already on the classpath with an unknown version, so compatibility cannot be checked.
+kotlin-parcelize = { id = "org.jetbrains.kotlin.plugin.parcelize"}
