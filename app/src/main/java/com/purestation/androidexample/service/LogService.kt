@@ -5,6 +5,8 @@ import android.content.Intent
 import android.os.IBinder
 import android.util.Log
 import com.purestation.androidexample.ILogService
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -37,6 +39,10 @@ class LogService : Service() {
     }
 
     private val client = OkHttpClient.Builder().build()
+    private val moshi = Moshi.Builder()
+        .addLast(KotlinJsonAdapterFactory())
+        .build()
+    private val adapter = moshi.adapter(LogEntry::class.java)
 
     override fun onCreate() {
         Log.d(TAG, "onCreate")
@@ -54,13 +60,11 @@ class LogService : Service() {
     }
 
     fun uploadToServer(entry: LogEntry) {
-        val postBody = """
-            {"message": "${entry.message}"}
-        """.trimIndent()
+        val json = adapter.toJson(entry)
 
         val request = Request.Builder()
             .url("https://httpbin.org/post")
-            .post(postBody.toRequestBody(MEDIA_TYPE_JSON))
+            .post(json.toRequestBody(MEDIA_TYPE_JSON))
             .build()
 
         client.newCall(request).execute().use { response ->

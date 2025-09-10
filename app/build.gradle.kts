@@ -74,4 +74,5 @@ dependencies {
     testImplementation(libs.robolectric)
     implementation(platform(libs.okhttp.bom))
     implementation(libs.okhttp)
+    implementation(libs.moshi)
 }
