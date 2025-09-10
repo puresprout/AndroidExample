@@ -13,17 +13,6 @@ class LogService : Service() {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private val binder = object : ILogService.Stub() {
-        override fun basicTypes(
-            anInt: Int,
-            aLong: Long,
-            aBoolean: Boolean,
-            aFloat: Float,
-            aDouble: Double,
-            aString: String?
-        ) {
-            TODO("Not yet implemented")
-        }
-
         override fun sendLog(entry: LogEntry?) {
             scope.launch { println("sendLog $entry") }
         }
