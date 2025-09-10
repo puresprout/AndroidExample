@@ -95,10 +95,8 @@ fun BoundServicePanel(modifier: Modifier = Modifier) {
     var logService by remember { mutableStateOf<ILogService?>(null) }
     var isBound by remember { mutableStateOf(false) }
 
-    DisposableEffect(Unit) {
-        Log.d(TAG, "DisposableEffect")
-
-        val conn = object : ServiceConnection {
+    val conn = remember {
+        object : ServiceConnection {
             override fun onServiceConnected(
                 name: ComponentName?,
                 service: IBinder?
@@ -116,18 +114,35 @@ fun BoundServicePanel(modifier: Modifier = Modifier) {
                 isBound = false
             }
         }
+    }
 
-        ctx.bindService(Intent().apply {
-            // INFO 일단 앱 프로세스로
-            setClass(ctx, LogService::class.java)
-        }, conn, Context.BIND_AUTO_CREATE)
+    fun bind() {
+        ctx.bindService(Intent(ctx, LogService::class.java),
+            conn, Context.BIND_AUTO_CREATE)
+    }
+
+    fun unbind() {
+        runCatching { ctx.unbindService(conn) }
+            .onFailure(::println)
+
+        // INFO unbind를 했을때 Service.onDestory()는 호출되지만, ServiceConnection.onServiceDisconnected() 콜백이 호출되지 않는다.
+        // 따라서 콜백에 의존하지 않고 다음처럼 초기화
+        logService = null
+        isBound = false
+    }
+
+    DisposableEffect(Unit) {
+        Log.d(TAG, "DisposableEffect")
+
+        if (!isBound) {
+            bind()
+        }
 
         onDispose {
             Log.d(TAG, "onDispose")
 
             if (isBound) {
-                runCatching { ctx.unbindService(conn) }
-                    .onFailure(::println)
+                unbind()
             }
         }
     }
@@ -141,6 +156,22 @@ fun BoundServicePanel(modifier: Modifier = Modifier) {
             logService?.sendLog(LogEntry("INFO", "log upload button clicked"))
         }) {
             Text("AIDL LogService로 로그 전송")
+        }
+
+        Button(onClick = {
+            if (!isBound) {
+                bind()
+            }
+        }) {
+            Text("LogService 연결")
+        }
+
+        Button(onClick = {
+            if (isBound) {
+                unbind()
+            }
+        }) {
+            Text("LogService 연결 해제")
         }
     }
 }
