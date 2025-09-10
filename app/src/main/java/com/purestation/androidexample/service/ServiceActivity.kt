@@ -136,7 +136,9 @@ fun BoundServicePanel(modifier: Modifier = Modifier) {
         Text("LogService connected: $isBound")
 
         Button(onClick = {
-            logService?.sendLog(LogEntry("ERROR", "app error"))
+            Log.d(TAG, "onClick")
+
+            logService?.sendLog(LogEntry("INFO", "log upload button clicked"))
         }) {
             Text("AIDL LogService로 로그 전송")
         }
@@ -146,9 +148,9 @@ fun BoundServicePanel(modifier: Modifier = Modifier) {
 @Composable
 fun ServiceScreen(modifier: Modifier = Modifier) {
     Column(modifier = modifier) {
-        StartedServicePanel()
-        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-        BoundServicePanel()
+        StartedServicePanel(Modifier.padding(all = 16.dp))
+        HorizontalDivider()
+        BoundServicePanel(Modifier.padding(all = 16.dp))
     }
 }
 
