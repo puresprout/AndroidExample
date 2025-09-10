@@ -2,6 +2,8 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+
+    id("kotlin-parcelize")
 }
 
 android {
@@ -27,15 +29,22 @@ android {
             )
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+
     kotlinOptions {
         jvmTarget = "11"
     }
+
     buildFeatures {
         compose = true
+
+        // aidl 켜야 아래 메뉴 활성화
+        // AIDL File (Requires setting the buildFeatures.aidl to true in the Gradle build files)
+        aidl = true
     }
 
     testOptions {
@@ -46,7 +55,6 @@ android {
 }
 
 dependencies {
-
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
@@ -62,9 +70,7 @@ dependencies {
     androidTestImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
-
     implementation(project(":common"))
-
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     testImplementation(libs.robolectric)
 }
