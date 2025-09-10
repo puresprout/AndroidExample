@@ -72,4 +72,6 @@ dependencies {
     implementation(project(":common"))
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     testImplementation(libs.robolectric)
+    implementation(platform(libs.okhttp.bom))
+    implementation(libs.okhttp)
 }

@@ -12,10 +12,16 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.IOException
 
 class LogService : Service() {
     companion object {
         private const val TAG = "LogService"
+        private val MEDIA_TYPE_JSON = "application/json; charset=utf-8".toMediaType()
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -30,18 +36,40 @@ class LogService : Service() {
         }
     }
 
+    private val client = OkHttpClient.Builder().build()
+
     override fun onCreate() {
         Log.d(TAG, "onCreate")
 
         scope.launch {
             for (entry in channel) {
                 // INFO 로그를 서버로 업로드하기 전 사전 작업 처리가 매우 길다고 가정하자.
-                delay(3000)
+                delay(1000)
 
-                runCatching { Log.i(TAG, "Upload log: $entry") }
-                    .onFailure { t -> Log.e(TAG, t.message, t) }
+                runCatching {
+                    uploadToServer(entry)
+                }.onFailure { t -> Log.e(TAG, t.message, t) }
             }
         }
+    }
+
+    fun uploadToServer(entry: LogEntry) {
+        val postBody = """
+            {"message": "${entry.message}"}
+        """.trimIndent()
+
+        val request = Request.Builder()
+            .url("https://httpbin.org/post")
+            .post(postBody.toRequestBody(MEDIA_TYPE_JSON))
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            println(response.body!!.string())
+
+            if (!response.isSuccessful) throw IOException("Unexpected code $response")
+        }
+
+        Log.i(TAG, "Upload log: $entry")
     }
 
     override fun onBind(intent: Intent): IBinder = binder
