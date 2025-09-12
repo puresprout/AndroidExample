@@ -7,8 +7,13 @@ import android.content.ServiceConnection
 import android.os.IBinder
 import android.util.Log
 import com.purestation.androidexample.ILogService
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
  * LogService 바인딩/해제 + 로그 전송을 캡슐화한 SDK.
@@ -24,6 +29,7 @@ import kotlinx.coroutines.flow.asStateFlow
 class LogServiceClient(context: Context) {
     companion object {
         private const val TAG = "LogServiceClient"
+        private const val INITIAL_BACKOFF_MS = 500L
     }
 
     private val ctx = context.applicationContext
@@ -31,6 +37,14 @@ class LogServiceClient(context: Context) {
     private var logService: ILogService? = null
     private val _isBound = MutableStateFlow(false)
     val isBound = _isBound.asStateFlow()
+
+    private val scope = MainScope()
+
+    private val queue = ConcurrentLinkedQueue<LogEntry>()
+
+    private var reconnectJob: Job? = null
+
+    private var delayMs = INITIAL_BACKOFF_MS
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(
@@ -41,6 +55,12 @@ class LogServiceClient(context: Context) {
 
             logService = ILogService.Stub.asInterface(service)
             _isBound.value = true
+
+            delayMs = INITIAL_BACKOFF_MS
+
+            while (queue.isNotEmpty()) {
+                sendLog(queue.poll()!!)
+            }
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -48,6 +68,9 @@ class LogServiceClient(context: Context) {
 
             logService = null
             _isBound.value = false
+
+            // 강제종료 당해서 끊어진 경우 다시 연결
+            retryReconnect()
         }
     }
 
@@ -62,7 +85,28 @@ class LogServiceClient(context: Context) {
 
         if (!r) {
             Log.e(TAG, "bindService failed")
+
+            retryReconnect()
         }
+    }
+
+    private fun retryReconnect() {
+        reconnectJob = scope.launch {
+            delay(delayMs)
+
+            bind()
+
+            // TODO 최대 시간 구현해야 함.
+            delayMs = delayMs * 2
+        }
+    }
+
+    private fun cancelReconnect() {
+        reconnectJob?.cancel()
+
+        reconnectJob = null
+
+        delayMs = INITIAL_BACKOFF_MS
     }
 
     /**
@@ -73,6 +117,9 @@ class LogServiceClient(context: Context) {
      * 여기서 직접 상태 초기화.
      */
     fun unbind() {
+        // 재시도 중인 재연결이 있다면 시도
+        cancelReconnect()
+
         if (!_isBound.value) return
 
         runCatching { ctx.unbindService(connection) }
@@ -84,10 +131,14 @@ class LogServiceClient(context: Context) {
 
     /** 로그 전송. 성공/실패 여부 반환 */
     fun sendLog(entry: LogEntry): Boolean {
-        val service = logService ?: return false
+        if (logService == null) {
+            queue.add(entry)
+
+            return true
+        }
 
         return runCatching {
-            service.sendLog(entry)
+            logService?.sendLog(entry)
             true
         }.onFailure {
             Log.e(TAG, it.toString(), it)
