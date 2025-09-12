@@ -1,11 +1,8 @@
 package com.purestation.androidexample.service
 
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.ServiceConnection
 import android.os.Bundle
-import android.os.IBinder
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -20,16 +17,14 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.purestation.androidexample.ILogService
 import com.purestation.androidexample.ui.theme.AndroidExampleTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -88,64 +83,33 @@ fun StartedServicePanel(modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * 화면 진입 시 bind, 화면 종료 시 unbind를 자동 수행하는 헬퍼.
+ */
 @Composable
-fun BoundServicePanel(modifier: Modifier = Modifier) {
+fun rememberLogServiceClient(): LogServiceClient {
     val ctx = LocalContext.current
-
-    var logService by remember { mutableStateOf<ILogService?>(null) }
-    var isBound by remember { mutableStateOf(false) }
-
-    val conn = remember {
-        object : ServiceConnection {
-            override fun onServiceConnected(
-                name: ComponentName?,
-                service: IBinder?
-            ) {
-                Log.d(TAG, "onServiceConnected")
-
-                logService = ILogService.Stub.asInterface(service)
-                isBound = true
-            }
-
-            override fun onServiceDisconnected(name: ComponentName?) {
-                Log.d(TAG, "onServiceDisconnected")
-
-                logService = null
-                isBound = false
-            }
-        }
-    }
-
-    fun bind() {
-        ctx.bindService(Intent(ctx, LogService::class.java),
-            conn, Context.BIND_AUTO_CREATE)
-    }
-
-    fun unbind() {
-        runCatching { ctx.unbindService(conn) }
-            .onFailure(::println)
-
-        // INFO unbind를 했을때 Service.onDestory()는 호출되지만, ServiceConnection.onServiceDisconnected() 콜백이 호출되지 않는다.
-        // 따라서 콜백에 의존하지 않고 다음처럼 초기화
-        logService = null
-        isBound = false
-    }
+    val client = remember { LogServiceClient(ctx) }
 
     DisposableEffect(Unit) {
         Log.d(TAG, "DisposableEffect")
 
-        if (!isBound) {
-            bind()
-        }
+        client.bind()
 
         onDispose {
             Log.d(TAG, "onDispose")
 
-            if (isBound) {
-                unbind()
-            }
+            client.dispose()
         }
     }
+
+    return client
+}
+
+@Composable
+fun BoundServicePanel(modifier: Modifier = Modifier) {
+    val client = rememberLogServiceClient()
+    val isBound by client.isBound.collectAsState()
 
     Column(modifier = modifier) {
         Text("LogService connected: $isBound")
@@ -153,24 +117,16 @@ fun BoundServicePanel(modifier: Modifier = Modifier) {
         Button(onClick = {
             Log.d(TAG, "onClick")
 
-            logService?.sendLog(LogEntry("INFO", "log upload button clicked"))
+            client.sendLog(LogEntry("INFO", "log upload button clicked"))
         }) {
             Text("AIDL LogService로 로그 전송")
         }
 
-        Button(onClick = {
-            if (!isBound) {
-                bind()
-            }
-        }) {
+        Button(onClick = { client.bind() }) {
             Text("LogService 연결")
         }
 
-        Button(onClick = {
-            if (isBound) {
-                unbind()
-            }
-        }) {
+        Button(onClick = { client.unbind() }) {
             Text("LogService 연결 해제")
         }
     }

@@ -33,7 +33,9 @@ class LogService : Service() {
     private val binder = object : ILogService.Stub() {
         override fun sendLog(entry: LogEntry?) {
             entry?.let {
-                channel.trySend(it)
+                scope.launch {
+                    channel.send(it)
+                }
             }
         }
     }
@@ -50,7 +52,7 @@ class LogService : Service() {
         scope.launch {
             for (entry in channel) {
                 // INFO 로그를 서버로 업로드하기 전 사전 작업 처리가 매우 길다고 가정하자.
-                delay(1000)
+                delay(100)
 
                 runCatching {
                     uploadToServer(entry)
