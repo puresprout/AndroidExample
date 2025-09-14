@@ -29,7 +29,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
 class LogServiceClient(context: Context) {
     companion object {
         private const val TAG = "LogServiceClient"
-        private const val INITIAL_BACKOFF_MS = 500L
+        private const val INITIAL_BACKOFF_MS = 300L
     }
 
     private val ctx = context.applicationContext
@@ -56,11 +56,9 @@ class LogServiceClient(context: Context) {
             logService = ILogService.Stub.asInterface(service)
             _isBound.value = true
 
-            delayMs = INITIAL_BACKOFF_MS
+            cancelScheduleReconnect()
 
-            while (queue.isNotEmpty()) {
-                sendLog(queue.poll()!!)
-            }
+            flushQueue()
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -70,7 +68,13 @@ class LogServiceClient(context: Context) {
             _isBound.value = false
 
             // 강제종료 당해서 끊어진 경우 다시 연결
-            retryReconnect()
+            scheduleReconnect()
+        }
+    }
+
+    private fun flushQueue() {
+        while (queue.isNotEmpty()) {
+            sendLog(queue.poll()!!)
         }
     }
 
@@ -86,25 +90,27 @@ class LogServiceClient(context: Context) {
         if (!r) {
             Log.e(TAG, "bindService failed")
 
-            retryReconnect()
+            scheduleReconnect()
         }
     }
 
-    private fun retryReconnect() {
-        reconnectJob = scope.launch {
-            delay(delayMs)
-
-            bind()
-
-            // TODO 최대 시간 구현해야 함.
-            delayMs = delayMs * 2
-        }
-    }
-
-    private fun cancelReconnect() {
+    private fun scheduleReconnect() {
         reconnectJob?.cancel()
 
-        reconnectJob = null
+        reconnectJob = scope.launch {
+            while (!_isBound.value) {
+                bind()
+
+                delay(delayMs)
+
+                // TODO 최대 시간 구현해야 함.
+                delayMs = delayMs * 2
+            }
+        }
+    }
+
+    private fun cancelScheduleReconnect() {
+        reconnectJob?.cancel()
 
         delayMs = INITIAL_BACKOFF_MS
     }
@@ -118,7 +124,7 @@ class LogServiceClient(context: Context) {
      */
     fun unbind() {
         // 재시도 중인 재연결이 있다면 시도
-        cancelReconnect()
+        cancelScheduleReconnect()
 
         if (!_isBound.value) return
 
