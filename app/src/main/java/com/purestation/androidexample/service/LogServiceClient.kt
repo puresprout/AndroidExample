@@ -6,6 +6,8 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
 import android.util.Log
+import androidx.annotation.VisibleForTesting
+import androidx.annotation.VisibleForTesting.Companion.PRIVATE
 import com.purestation.androidexample.ILogService
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
@@ -46,7 +48,8 @@ class LogServiceClient(context: Context) {
 
     private var delayMs = INITIAL_BACKOFF_MS
 
-    private val connection = object : ServiceConnection {
+    @VisibleForTesting(otherwise = PRIVATE)
+    internal val connection = object : ServiceConnection {
         override fun onServiceConnected(
             name: ComponentName?,
             service: IBinder?
