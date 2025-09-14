@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.purestation.androidexample.ILogResultCallback
 import com.purestation.androidexample.ui.theme.AndroidExampleTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -120,6 +121,21 @@ fun BoundServicePanel(modifier: Modifier = Modifier) {
             client.sendLog(LogEntry("INFO", "log upload button clicked"))
         }) {
             Text("AIDL LogService로 로그 전송")
+        }
+
+        Button(onClick = {
+            Log.d(TAG, "onClick with callback")
+
+            client.sendLogWithCallback(LogEntry("INFO", "log upload button with callback clicked"), object : ILogResultCallback.Stub() {
+                override fun onError(errorMessage: String?) {
+                    Log.d(TAG, "onError - $errorMessage")
+                }
+                override fun onResult(ok: Boolean) {
+                    Log.d(TAG, "onResult - $ok")
+                }
+            })
+        }) {
+            Text("AIDL LogService로 로그 전송 with callback")
         }
 
         Button(onClick = { client.bind() }) {

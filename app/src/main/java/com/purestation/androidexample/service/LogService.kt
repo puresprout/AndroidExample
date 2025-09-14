@@ -4,6 +4,7 @@ import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import android.util.Log
+import com.purestation.androidexample.ILogResultCallback
 import com.purestation.androidexample.ILogService
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -28,13 +29,26 @@ class LogService : Service() {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    private val channel = Channel<LogEntry>(Channel.UNLIMITED)
+    private data class Task(val entry: LogEntry, val cb: ILogResultCallback? = null)
+
+    private val channel = Channel<Task>(Channel.UNLIMITED)
 
     private val binder = object : ILogService.Stub() {
         override fun sendLog(entry: LogEntry?) {
             entry?.let {
                 scope.launch {
-                    channel.send(it)
+                    channel.send(Task(it))
+                }
+            }
+        }
+
+        override fun sendLogWithCallback(
+            entry: LogEntry?,
+            cb: ILogResultCallback?
+        ) {
+            entry?.let {
+                scope.launch {
+                    channel.send(Task(it, cb))
                 }
             }
         }
@@ -50,13 +64,19 @@ class LogService : Service() {
         Log.d(TAG, "onCreate")
 
         scope.launch {
-            for (entry in channel) {
+            for (task in channel) {
                 // INFO 로그를 서버로 업로드하기 전 사전 작업 처리가 매우 길다고 가정하자.
                 delay(100)
 
                 runCatching {
-                    uploadToServer(entry)
-                }.onFailure { t -> Log.e(TAG, t.message, t) }
+                    uploadToServer(task.entry)
+                }.onSuccess {
+                    task.cb?.onResult(true)
+                }.onFailure {
+                    t -> Log.e(TAG, t.message, t)
+
+                    task.cb?.onError(t.message)
+                }
             }
         }
     }
@@ -70,7 +90,7 @@ class LogService : Service() {
             .build()
 
         client.newCall(request).execute().use { response ->
-            println(response.body!!.string())
+//            println(response.body!!.string())
 
             if (!response.isSuccessful) throw IOException("Unexpected code $response")
         }

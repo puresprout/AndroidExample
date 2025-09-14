@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.os.IBinder
 import androidx.test.core.app.ApplicationProvider
+import com.purestation.androidexample.ILogResultCallback
 import com.purestation.androidexample.ILogService
 import io.mockk.mockk
 import org.junit.Assert.assertEquals
@@ -22,12 +23,23 @@ import org.robolectric.annotation.LooperMode.Mode.PAUSED
 @LooperMode(PAUSED)
 class LogServiceClientTest {
 
+    private data class Task(val entry: LogEntry, val cb: ILogResultCallback? = null)
+
     /** 실제 서비스 대신 사용할 페이크 Stub — 전달된 엔트리를 메모리에 축적 */
     private class FakeLogService : ILogService.Stub() {
-        val received = mutableListOf<LogEntry?>()
+        val received = mutableListOf<Task>()
+
         override fun sendLog(entry: LogEntry?) {
-            received += entry
+            received += Task(entry!!)
         }
+
+        override fun sendLogWithCallback(
+            entry: LogEntry?,
+            cb: ILogResultCallback?
+        ) {
+            received += Task(entry!!, cb!!)
+        }
+
         override fun asBinder(): IBinder = this
     }
 
@@ -54,8 +66,8 @@ class LogServiceClientTest {
         // 큐 플러시 확인
         assertTrue(client.isBound.value)
         assertEquals(2, fake.received.size)
-        assertSame(e1, fake.received[0])
-        assertSame(e2, fake.received[1])
+        assertSame(e1, fake.received[0].entry)
+        assertSame(e2, fake.received[1].entry)
     }
 
     @Test

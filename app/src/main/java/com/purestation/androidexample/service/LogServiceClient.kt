@@ -8,6 +8,7 @@ import android.os.IBinder
 import android.util.Log
 import androidx.annotation.VisibleForTesting
 import androidx.annotation.VisibleForTesting.Companion.PRIVATE
+import com.purestation.androidexample.ILogResultCallback
 import com.purestation.androidexample.ILogService
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
@@ -34,6 +35,8 @@ class LogServiceClient(context: Context) {
         private const val INITIAL_BACKOFF_MS = 300L
     }
 
+    data class Task(val entry: LogEntry, val cb: ILogResultCallback? = null)
+
     private val ctx = context.applicationContext
 
     private var logService: ILogService? = null
@@ -42,7 +45,7 @@ class LogServiceClient(context: Context) {
 
     private val scope = MainScope()
 
-    private val queue = ConcurrentLinkedQueue<LogEntry>()
+    private val queue = ConcurrentLinkedQueue<Task>()
 
     private var reconnectJob: Job? = null
 
@@ -77,7 +80,14 @@ class LogServiceClient(context: Context) {
 
     private fun flushQueue() {
         while (queue.isNotEmpty()) {
-            sendLog(queue.poll()!!)
+            val task = queue.poll()
+            task?.let {
+                if (it.cb == null) {
+                    sendLog(it.entry)
+                } else {
+                    sendLogWithCallback(it.entry, it.cb)
+                }
+            }
         }
     }
 
@@ -141,13 +151,28 @@ class LogServiceClient(context: Context) {
     /** 로그 전송. 성공/실패 여부 반환 */
     fun sendLog(entry: LogEntry): Boolean {
         if (logService == null) {
-            queue.add(entry)
+            queue.add(Task(entry))
 
             return true
         }
 
         return runCatching {
             logService?.sendLog(entry)
+            true
+        }.onFailure {
+            Log.e(TAG, it.toString(), it)
+        }.getOrDefault(false)
+    }
+
+    fun sendLogWithCallback(entry: LogEntry, cb: ILogResultCallback): Boolean {
+        if (logService == null) {
+            queue.add(Task(entry, cb))
+
+            return true
+        }
+
+        return runCatching {
+            logService?.sendLogWithCallback(entry, cb)
             true
         }.onFailure {
             Log.e(TAG, it.toString(), it)
