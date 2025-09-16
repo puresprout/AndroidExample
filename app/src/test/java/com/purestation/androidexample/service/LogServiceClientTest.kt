@@ -25,7 +25,7 @@ class LogServiceClientTest {
 
     private data class Task(val entry: LogEntry, val cb: ILogResultCallback? = null)
 
-    /** 실제 서비스 대신 사용할 페이크 Stub — 전달된 엔트리를 메모리에 축적 */
+    /** 실제 서비스 대신 사용할 페이크 객체 — 전달된 엔트리를 메모리에 축적 */
     private class FakeLogService : ILogService.Stub() {
         val received = mutableListOf<Task>()
 

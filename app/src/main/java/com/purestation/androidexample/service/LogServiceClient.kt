@@ -80,14 +80,8 @@ class LogServiceClient(context: Context) {
 
     private fun flushQueue() {
         while (queue.isNotEmpty()) {
-            val task = queue.poll()
-            task?.let {
-                if (it.cb == null) {
-                    sendLog(it.entry)
-                } else {
-                    sendLogWithCallback(it.entry, it.cb)
-                }
-            }
+            val task = queue.poll() ?: continue
+            task.cb?.let { sendLogWithCallback(task.entry, it) } ?: sendLog(task.entry)
         }
     }
 
@@ -136,7 +130,7 @@ class LogServiceClient(context: Context) {
      * 여기서 직접 상태 초기화.
      */
     fun unbind() {
-        // 재시도 중인 재연결이 있다면 시도
+        // 재시도 중인 재연결이 있다면 취소
         cancelScheduleReconnect()
 
         if (!_isBound.value) return

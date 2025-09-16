@@ -8,5 +8,5 @@ import com.purestation.androidexample.ILogResultCallback;
 interface ILogService {
     oneway void sendLog(in LogEntry entry);
 
-    void sendLogWithCallback(in LogEntry entry, ILogResultCallback cb);
+    oneway void sendLogWithCallback(in LogEntry entry, ILogResultCallback cb);
 }
