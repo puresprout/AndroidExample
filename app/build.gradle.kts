@@ -78,4 +78,5 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.moshi)
     testImplementation(libs.mockk)
+    implementation(libs.androidx.car.app)
 }

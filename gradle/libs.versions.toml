@@ -1,5 +1,6 @@
 [versions]
 agp = "8.12.2"
+car-app = "1.7.0"
 kotlin = "2.0.21"
 coreKtx = "1.16.0"
 testCoreKtx = "1.7.0"
@@ -19,6 +20,7 @@ moshi = "1.15.2"
 mockk = "1.13.12"
 
 [libraries]
+androidx-car-app = { module = "androidx.car.app:app", version.ref = "car-app" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-test-core-ktx = { group = "androidx.test", name = "core-ktx", version.ref = "testCoreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
