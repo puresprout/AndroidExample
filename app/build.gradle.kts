@@ -64,6 +64,10 @@ dependencies {
     implementation(libs.androidx.material3)
     // 이게 왜 testImplementation이 아닐까?
     implementation(libs.androidx.test.core.ktx)
+    implementation(libs.androidx.appcompat)
+    implementation(libs.material)
+    implementation(libs.androidx.activity)
+    implementation(libs.androidx.constraintlayout)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
