@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.purestation.androidexample.chart.ChartActivity
 import com.purestation.androidexample.flow.FlowActivity
 import com.purestation.androidexample.gestures.GesturesActivity
 import com.purestation.androidexample.service.ServiceActivity
@@ -49,7 +50,8 @@ fun ListScreen(modifier: Modifier = Modifier) {
     val items = listOf(
         ListItem("Flow 예제", FlowActivity::class.java),
         ListItem("Service 예제", ServiceActivity::class.java),
-        ListItem("Gestures 예제", GesturesActivity::class.java)
+        ListItem("Gestures 예제", GesturesActivity::class.java),
+        ListItem("Chart 예제", ChartActivity::class.java),
     )
 
     val context = LocalContext.current
