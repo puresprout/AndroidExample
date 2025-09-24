@@ -4,15 +4,24 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.annotation.DrawableRes
-import androidx.appcompat.content.res.AppCompatResources
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.viewinterop.AndroidView
-import com.purestation.androidexample.R
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
 import com.purestation.androidexample.ui.theme.AndroidExampleTheme
 
 class GesturesActivity : ComponentActivity() {
@@ -20,42 +29,51 @@ class GesturesActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            AndroidExampleTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Screen(Modifier.padding(innerPadding))
-                }
-            }
+            GesturesNavApp()
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun GesturesNavApp() {
+    AndroidExampleTheme {
+        val navController = rememberNavController()
+        val currentBackStack by navController.currentBackStackEntryAsState()
+        val currentDestination = currentBackStack?.destination
+        val currentScreen = screens.find { it.route == currentDestination?.route } ?: Home
+        val canBack = navController.previousBackStackEntry != null
+
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            topBar = {
+                TopAppBar(
+                    title = { Text(currentScreen.title) },
+                    navigationIcon = {
+                        if (canBack)
+                            IconButton(onClick = { navController.navigateUp() }) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
+                            }
+                    }
+                )
+            }) { innerPadding ->
+            GesturesNavHost(navController, Modifier.padding(innerPadding))
         }
     }
 }
 
 @Composable
-fun Screen(modifier: Modifier = Modifier) {
-    TransformImageComposable(
-//        imageResId = R.drawable.ic_launcher_foreground,
-        R.drawable.emma_swoboda_unsplash,
-        modifier = modifier.fillMaxSize()
-    )
-}
-
-@Composable
-fun TransformImageComposable(
-    @DrawableRes imageResId: Int,
-    modifier: Modifier = Modifier
-) {
-    AndroidView(
-        modifier = modifier,
-        factory = { context ->
-            TransformImageView(context).apply {
-                // 여기서 바로 이미지 지정
-                imageResId.let {
-                    val d = AppCompatResources.getDrawable(context, it)
-                    setImageDrawable(d)
-                }
-            }
-        },
-        update = { view ->
-            // 필요하면 상태 변화에 따라 view.setImageDrawable(...) 등 업데이트
+fun GesturesNavHost(navController: NavHostController, modifier: Modifier) {
+    NavHost(
+        navController = navController,
+        startDestination = Home.route,
+        modifier = modifier
+    ) {
+        composable(Home.route) {
+            GesturesHomeScreen(onClick = { navController.navigate(it.route) })
         }
-    )
+        composable(TransformImage.route) {
+            TransformImageScreen()
+        }
+    }
 }
