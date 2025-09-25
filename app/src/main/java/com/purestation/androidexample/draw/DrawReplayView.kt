@@ -14,10 +14,18 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.animation.LinearInterpolator
 
+/**
+ * DrawReplayView
+ *
+ * - 사용자가 손가락으로 그린 선(스트로크)을 기록하고 다시 재생할 수 있는 커스텀 뷰
+ * - 기록: 터치 이벤트(MotionEvent)를 받아 Path와 시간 정보를 저장
+ * - 재생: 저장된 시간 정보에 맞춰 ValueAnimator를 이용해 순차적으로 Path를 그려줌
+ */
 class DrawReplayView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null
 ) : View(context, attrs) {
 
+    // 선(스트로크)을 그리기 위한 Paint 객체
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.BLACK
         style = Paint.Style.STROKE
@@ -26,34 +34,45 @@ class DrawReplayView @JvmOverloads constructor(
         strokeJoin = Paint.Join.ROUND
     }
 
-    data class Pt(val x: Float, val y: Float, val t: Long) // t: 스트로크 시작 대비 ms
+    // 그려진 점 하나의 데이터 클래스 (x,y 좌표와 시간)
+    data class Pt(val x: Float, val y: Float, val t: Long) // t: 스트로크 시작 시점 대비 경과 ms
+
+    // 스트로크 데이터 (한 번 터치로 이어서 그린 선 전체)
     data class Stroke(
-        val startAt: Long,                        // 세션 시작 대비 ms
-        val pts: MutableList<Pt> = mutableListOf()
+        val startAt: Long,                        // 세션 시작 대비 스트로크 시작 시간(ms)
+        val pts: MutableList<Pt> = mutableListOf() // 스트로크를 구성하는 점들의 목록
     )
 
-    private val strokes = mutableListOf<Stroke>() // 완료된 스트로크 기록
-    private val finishedPaths = mutableListOf<Path>() // 화면 표시용 캐시
-    private val currentPath = Path()
+    // 기록 관련
+    private val strokes = mutableListOf<Stroke>()    // 완료된 스트로크들 저장
+    private val finishedPaths = mutableListOf<Path>() // 화면 표시용 Path 캐시
+    private val currentPath = Path()                  // 현재 그리고 있는 Path
 
-    private var sessionStart = 0L
-    private var currentStroke: Stroke? = null
-    private var currentDownUptime = 0L
+    private var sessionStart = 0L          // 첫 터치 시작 시각
+    private var currentStroke: Stroke? = null // 현재 진행 중인 스트로크
+    private var currentDownUptime = 0L     // 현재 스트로크의 ACTION_DOWN 시각
 
-    // 재생 관련
+    // 재생 관련 상태값
     private var isReplaying = false
     private var replayAnimator: ValueAnimator? = null
-    private var replayPath: Path? = null
-    private var replayProgressMs: Long = 0L
-    private var rpStrokeIndex = 0
-    private var rpPointIndex = 0
+    private var replayPath: Path? = null         // 재생 중에 점점 그려질 Path
+    private var replayProgressMs: Long = 0L      // 재생 시 현재까지 진행된 시간
+    private var rpStrokeIndex = 0                // 현재 재생 중인 스트로크 인덱스
+    private var rpPointIndex = 0                 // 현재 스트로크 내에서 재생 중인 점 인덱스
 
     init {
+        // 클릭 가능 속성 (터치 이벤트를 받기 위함)
         isClickable = true
     }
 
+    /**
+     * 터치 이벤트 처리
+     * - ACTION_DOWN: 스트로크 시작
+     * - ACTION_MOVE: 점 추가 및 Path 갱신
+     * - ACTION_UP / CANCEL: 스트로크 종료 및 기록 저장
+     */
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        if (isReplaying) return true // 재생 중엔 입력 무시(원한다면 허용 가능)
+        if (isReplaying) return true // 재생 중이면 입력 무시
         if (sessionStart == 0L) sessionStart = SystemClock.uptimeMillis()
 
         when (e.actionMasked) {
@@ -63,6 +82,7 @@ class DrawReplayView @JvmOverloads constructor(
                 currentPath.reset()
                 currentPath.moveTo(e.x, e.y)
 
+                // 새로운 스트로크 시작
                 currentStroke = Stroke(startAt = currentDownUptime - sessionStart).also {
                     it.pts += Pt(e.x, e.y, 0L)
                 }
@@ -72,7 +92,7 @@ class DrawReplayView @JvmOverloads constructor(
             MotionEvent.ACTION_MOVE -> {
                 val s = currentStroke ?: return true
 
-                // 히스토리 포인트 먼저 추가(더 부드러운 기록)
+                // MotionEvent의 history 데이터 활용 (더 부드러운 선 기록)
                 val hist = e.historySize
                 if (hist > 0) {
                     var lastX = s.pts.last().x
@@ -83,13 +103,13 @@ class DrawReplayView @JvmOverloads constructor(
                         val ht = e.getHistoricalEventTime(i) - currentDownUptime
                         val mx = (lastX + hx) / 2f
                         val my = (lastY + hy) / 2f
-                        currentPath.quadTo(lastX, lastY, mx, my)
+                        currentPath.quadTo(lastX, lastY, mx, my) // 부드럽게 곡선 연결
                         s.pts += Pt(hx, hy, ht)
                         lastX = hx; lastY = hy
                     }
                 }
 
-                // 현재 포인트 추가
+                // 현재 좌표도 추가
                 val dt = e.eventTime - currentDownUptime
                 val lx = s.pts.last().x
                 val ly = s.pts.last().y
@@ -102,9 +122,9 @@ class DrawReplayView @JvmOverloads constructor(
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 currentStroke?.let { s ->
-                    // 마지막 선분을 확정하려면 lineTo(e.x, e.y) 등 추가 가능
-                    finishedPaths += Path(currentPath) // 표시용 캐시
-                    strokes += s                       // 기록 저장
+                    // Path 복사하여 화면 표시용 캐시에 저장
+                    finishedPaths += Path(currentPath)
+                    strokes += s // 스트로크 기록 저장
                     currentStroke = null
                 }
                 invalidate()
@@ -113,6 +133,11 @@ class DrawReplayView @JvmOverloads constructor(
         return true
     }
 
+    /**
+     * 그리기
+     * - 재생 중이면 replayPath만 그림
+     * - 그 외에는 완료된 Path + 현재 진행 중인 Path 그림
+     */
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         if (isReplaying) {
@@ -123,6 +148,9 @@ class DrawReplayView @JvmOverloads constructor(
         }
     }
 
+    /**
+     * 전체 기록의 총 시간(ms)
+     */
     private val totalDurationMs: Long
         get() {
             val lastStroke = strokes.lastOrNull() ?: return 0L
@@ -130,6 +158,9 @@ class DrawReplayView @JvmOverloads constructor(
             return lastStroke.startAt + lastPoint.t
         }
 
+    /**
+     * 저장된 기록을 기반으로 재생 시작
+     */
     fun startReplay() {
         if (strokes.isEmpty()) return
         stopReplay()
@@ -158,6 +189,9 @@ class DrawReplayView @JvmOverloads constructor(
         }
     }
 
+    /**
+     * 재생 중지
+     */
     fun stopReplay() {
         replayAnimator?.cancel()
         replayAnimator = null
@@ -169,6 +203,9 @@ class DrawReplayView @JvmOverloads constructor(
         invalidate()
     }
 
+    /**
+     * 주어진 시간(elapsed)까지 Path를 그림
+     */
     private fun buildReplayPathUntil(elapsed: Long) {
         val path = replayPath ?: return
 
@@ -207,15 +244,18 @@ class DrawReplayView @JvmOverloads constructor(
                 rpPointIndex++
             }
 
-            // 아직 이 스트로크의 남은 포인트가 있다면 다음 프레임에 이어서 그림
+            // 아직 이 스트로크에 그려야 할 점이 남아있으면 break
             if (rpPointIndex < s.pts.size) break
 
-            // 스트로크 완료 → 다음 스트로크로
+            // 스트로크 완료 → 다음 스트로크로 이동
             rpStrokeIndex++
             rpPointIndex = 0
         }
     }
 
+    /**
+     * 전체 화면 초기화
+     */
     fun clearAll() {
         stopReplay()
         strokes.clear()
@@ -225,7 +265,7 @@ class DrawReplayView @JvmOverloads constructor(
         invalidate()
     }
 
-    // 옵션: 외부에서 선 색/두께 변경
+    // 옵션: 외부에서 선 색상 및 두께 변경 가능
     fun setStrokeColor(color: Int) { paint.color = color; invalidate() }
     fun setStrokeWidth(px: Float) { paint.strokeWidth = px; invalidate() }
 }
