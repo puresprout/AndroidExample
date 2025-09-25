@@ -20,9 +20,7 @@ class TransformImageView @JvmOverloads constructor(
     private val workMatrix = Matrix()
     // 행렬 값 읽을 때 사용할 배열
     private val values = FloatArray(9)
-    // 뷰 영역
-    private val viewRect = RectF()
-    // 이미지 영역 (변환된 후의 외접 사각형)
+    // workMatrix.mapRect로 갱신되는 이미지의 화면상 경계(계산용), 화면 반영 X
     private val imgRect = RectF()
 
     // 최소/최대 스케일 제한
@@ -144,7 +142,6 @@ class TransformImageView @JvmOverloads constructor(
         val vw = width.toFloat()
         val vh = height.toFloat()
 
-        viewRect.set(0f, 0f, vw, vh)
         imgRect.set(0f, 0f, d.intrinsicWidth.toFloat(), d.intrinsicHeight.toFloat())
         workMatrix.mapRect(imgRect)
 
