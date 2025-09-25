@@ -64,6 +64,7 @@ class TransformCanvasView @JvmOverloads constructor(
             // 더블탭 → 화면에 맞게 초기화
             override fun onDoubleTap(e: MotionEvent): Boolean {
                 resetToFit()
+                invalidate()
                 return true
             }
         })
