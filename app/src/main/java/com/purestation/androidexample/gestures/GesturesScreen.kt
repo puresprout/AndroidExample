@@ -24,7 +24,7 @@ import com.purestation.androidexample.gesturesScreens
 @Composable
 fun GesturesHomeScreen(modifier: Modifier = Modifier, onClick: (AppRoute) -> Unit) {
     Column(modifier.padding(horizontal = 16.dp)) {
-        gesturesScreens.forEachIndexed { index, item ->
+        gesturesScreens.forEach { item ->
             Text(
                 text = item.route,
                 modifier = Modifier
@@ -34,10 +34,7 @@ fun GesturesHomeScreen(modifier: Modifier = Modifier, onClick: (AppRoute) -> Uni
                         onClick(item)
                     }
             )
-
-            if (index < gesturesScreens.size) {
-                HorizontalDivider()
-            }
+            HorizontalDivider()
         }
     }
 }
@@ -47,24 +44,6 @@ fun TransformImageScreen(modifier: Modifier = Modifier) {
     TransformImageComposable(
 //        imageResId = R.drawable.ic_launcher_foreground,
         R.drawable.caroline_badran_unsplash,
-        modifier = modifier.fillMaxSize()
-    )
-}
-
-@Composable
-fun TransformCanvasScreen(modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-
-    // 리소스를 Bitmap으로 디코딩 (리컴포지션 최소화)
-    val bitmap = remember(R.drawable.caroline_badran_unsplash) {
-        BitmapFactory.decodeResource(
-            context.resources,
-            R.drawable.caroline_badran_unsplash
-        )
-    }
-
-    TransformCanvasComposable(
-        bitmap,
         modifier = modifier.fillMaxSize()
     )
 }
@@ -88,6 +67,24 @@ fun TransformImageComposable(
         update = { view ->
             // 필요하면 상태 변화에 따라 view.setImageDrawable(...) 등 업데이트
         }
+    )
+}
+
+@Composable
+fun TransformCanvasScreen(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+
+    // 리소스를 Bitmap으로 디코딩 (리컴포지션 최소화)
+    val bitmap = remember(R.drawable.caroline_badran_unsplash) {
+        BitmapFactory.decodeResource(
+            context.resources,
+            R.drawable.caroline_badran_unsplash
+        )
+    }
+
+    TransformCanvasComposable(
+        bitmap,
+        modifier = modifier.fillMaxSize()
     )
 }
 

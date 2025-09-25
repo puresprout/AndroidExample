@@ -20,6 +20,10 @@ sealed interface AppRoute {
         override val route = "gestures"
     } // nested graph의 엔트리
 
+    data object Draw : AppRoute {
+        override val route = "draw"
+    }
+
     data object Chart : AppRoute {
         override val route = "chart"
     }
@@ -39,6 +43,6 @@ sealed interface AppRoute {
     }
 }
 
-val screens = listOf(AppRoute.Flow, AppRoute.Service, AppRoute.Gestures)
+val screens = listOf(AppRoute.Flow, AppRoute.Service, AppRoute.Gestures, AppRoute.Draw)
 
 val gesturesScreens = listOf(AppRoute.TransformImage, AppRoute.TransformCanvas)

@@ -14,6 +14,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.navigation
+import com.purestation.androidexample.draw.DrawScreen
 import com.purestation.androidexample.flow.FlowScreen
 import com.purestation.androidexample.gestures.GesturesHomeScreen
 import com.purestation.androidexample.gestures.TransformCanvasScreen
@@ -36,6 +37,9 @@ fun AppNavHost(navController: NavHostController, modifier: Modifier = Modifier) 
         }
         composable(AppRoute.Service.route) {
             ServiceScreen()
+        }
+        composable(AppRoute.Draw.route) {
+            DrawScreen()
         }
         composable(AppRoute.Chart.route) {
         }
@@ -63,7 +67,7 @@ fun AppNavHost(navController: NavHostController, modifier: Modifier = Modifier) 
 @Composable
 fun HomeScreen(modifier: Modifier = Modifier, onClick: (AppRoute) -> Unit) {
     Column(modifier.padding(horizontal = 16.dp)) {
-        screens.forEachIndexed { index, item ->
+        screens.forEach { item ->
             Text(
                 text = item.route,
                 modifier = Modifier
@@ -73,10 +77,7 @@ fun HomeScreen(modifier: Modifier = Modifier, onClick: (AppRoute) -> Unit) {
                         onClick(item)
                     }
             )
-
-            if (index < gesturesScreens.size) {
-                HorizontalDivider()
-            }
+            HorizontalDivider()
         }
     }
 }
