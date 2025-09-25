@@ -75,5 +75,8 @@ fun GesturesNavHost(navController: NavHostController, modifier: Modifier) {
         composable(TransformImage.route) {
             TransformImageScreen()
         }
+        composable(TransformCanvas.route) {
+            TransformCanvasScreen()
+        }
     }
 }

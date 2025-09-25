@@ -15,6 +15,11 @@ data object TransformImage : GesturesDestination {
     override val title = "Transform Image"
 }
 
-val screens = listOf(Home, TransformImage)
+data object TransformCanvas : GesturesDestination {
+    override val route = "transform_canvas"
+    override val title = "Transform Canvas"
+}
 
-val itemList = listOf(TransformImage)
+val screens = listOf(Home, TransformImage, TransformCanvas)
+
+val itemList = listOf(TransformImage, TransformCanvas)
