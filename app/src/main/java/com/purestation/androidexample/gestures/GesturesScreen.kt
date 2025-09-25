@@ -36,7 +36,7 @@ fun GesturesHomeScreen(onClick: (GesturesDestination) -> Unit) {
 fun TransformImageScreen(modifier: Modifier = Modifier) {
     TransformImageComposable(
 //        imageResId = R.drawable.ic_launcher_foreground,
-        R.drawable.micah_sammie_chaffin_unsplash,
+        R.drawable.caroline_badran_unsplash,
         modifier = modifier.fillMaxSize()
     )
 }
