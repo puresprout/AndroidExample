@@ -13,25 +13,15 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.AndroidExample">
         <activity
-            android:name=".gestures.GesturesActivity"
-            android:exported="false"
-            android:label="@string/title_activity_gestures"
-            android:theme="@style/Theme.AndroidExample" />
-        <activity
             android:name=".chart.ChartActivity"
-            android:theme="@style/Theme.AppCompat.Light.NoActionBar"
-            android:exported="false" />
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar" />
+
         <service
             android:name=".service.LogService"
             android:enabled="true"
             android:exported="false"
             android:process=":logger" />
-
-        <activity
-            android:name=".service.ServiceActivity"
-            android:exported="false"
-            android:label="@string/title_activity_service"
-            android:theme="@style/Theme.AndroidExample" />
 
         <service
             android:name=".service.CountService"
@@ -48,10 +38,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity
-            android:name=".flow.FlowActivity"
-            android:exported="false"
-            android:theme="@style/Theme.AndroidExample" />
     </application>
 
 </manifest>

@@ -5,11 +5,10 @@ import android.graphics.BitmapFactory
 import androidx.annotation.DrawableRes
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -18,18 +17,25 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.purestation.androidexample.AppRoute
 import com.purestation.androidexample.R
+import com.purestation.androidexample.gesturesScreens
 
 @Composable
-fun GesturesHomeScreen(onClick: (GesturesDestination) -> Unit) {
-    LazyColumn {
-        itemsIndexed(itemList) { index, screen ->
-            Text(text = screen.title,
-                modifier = Modifier.fillMaxWidth().padding(16.dp).clickable {
-                    onClick(screen)
-                })
+fun GesturesHomeScreen(modifier: Modifier = Modifier, onClick: (AppRoute) -> Unit) {
+    Column(modifier.padding(horizontal = 16.dp)) {
+        gesturesScreens.forEachIndexed { index, item ->
+            Text(
+                text = item.route,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp)
+                    .clickable {
+                        onClick(item)
+                    }
+            )
 
-            if (index < itemList.lastIndex) {
+            if (index < gesturesScreens.size) {
                 HorizontalDivider()
             }
         }

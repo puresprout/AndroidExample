@@ -2,18 +2,12 @@ package com.purestation.androidexample.service
 
 import android.content.Context
 import android.content.Intent
-import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -30,21 +24,22 @@ import com.purestation.androidexample.ui.theme.AndroidExampleTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private const val TAG = "ServiceActivity"
+private const val TAG = "ServiceScreen"
 
-class ServiceActivity : ComponentActivity() {
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-        setContent {
-            AndroidExampleTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    ServiceScreen(
-                        modifier = Modifier.padding(innerPadding)
-                    )
-                }
-            }
-        }
+@Composable
+fun ServiceScreen(modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        StartedServicePanel(Modifier.padding(all = 16.dp))
+        HorizontalDivider()
+        BoundServicePanel(Modifier.padding(all = 16.dp))
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun ServiceScreenPreview() {
+    AndroidExampleTheme {
+        ServiceScreen()
     }
 }
 
@@ -126,14 +121,17 @@ fun BoundServicePanel(modifier: Modifier = Modifier) {
         Button(onClick = {
             Log.d(TAG, "onClick with callback")
 
-            client.sendLogWithCallback(LogEntry("INFO", "log upload button with callback clicked"), object : ILogResultCallback.Stub() {
-                override fun onError(errorMessage: String?) {
-                    Log.d(TAG, "onError - $errorMessage")
-                }
-                override fun onResult(ok: Boolean) {
-                    Log.d(TAG, "onResult - $ok")
-                }
-            })
+            client.sendLogWithCallback(
+                LogEntry("INFO", "log upload button with callback clicked"),
+                object : ILogResultCallback.Stub() {
+                    override fun onError(errorMessage: String?) {
+                        Log.d(TAG, "onError - $errorMessage")
+                    }
+
+                    override fun onResult(ok: Boolean) {
+                        Log.d(TAG, "onResult - $ok")
+                    }
+                })
         }) {
             Text("AIDL LogService로 로그 전송 with callback")
         }
@@ -148,19 +146,3 @@ fun BoundServicePanel(modifier: Modifier = Modifier) {
     }
 }
 
-@Composable
-fun ServiceScreen(modifier: Modifier = Modifier) {
-    Column(modifier = modifier) {
-        StartedServicePanel(Modifier.padding(all = 16.dp))
-        HorizontalDivider()
-        BoundServicePanel(Modifier.padding(all = 16.dp))
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun ServiceScreenPreview() {
-    AndroidExampleTheme {
-        ServiceScreen()
-    }
-}
