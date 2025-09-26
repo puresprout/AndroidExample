@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.text.Editable
@@ -28,6 +29,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import androidx.recyclerview.widget.ItemTouchHelper
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
@@ -42,7 +44,21 @@ class RichEditorView @JvmOverloads constructor(
     private val adapter = BlocksAdapter()
     private val undoRedo = UndoRedo()
 
+    private fun dpInt(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+    private fun dp(v: Float): Float = v * resources.displayMetrics.density
+
     init {
+        // 기존 코드들(recycler, layoutManager 등) 위/아래 아무 곳에 배치 가능
+        background = GradientDrawable().apply {
+//            setColor(Color.WHITE) // 안쪽 배경
+            cornerRadius = dp(8f)
+            setStroke(dpInt(1), Color.parseColor("#000000"))
+        }
+        setPadding(dpInt(8), dpInt(8), dpInt(8), dpInt(8)) // 테두리 안쪽 여백
+
+        // 레이아웃 매니저 필수
+        recycler.layoutManager = LinearLayoutManager(context)
+
         recycler.adapter = adapter
         recycler.itemAnimator = null
         addView(recycler, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
