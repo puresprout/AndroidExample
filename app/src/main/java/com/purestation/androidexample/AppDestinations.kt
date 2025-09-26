@@ -24,6 +24,10 @@ sealed interface AppRoute {
         override val route = "draw"
     }
 
+    data object Editor : AppRoute {
+        override val route = "editor"
+    }
+
     data object Chart : AppRoute {
         override val route = "chart"
     }
@@ -43,6 +47,6 @@ sealed interface AppRoute {
     }
 }
 
-val screens = listOf(AppRoute.Flow, AppRoute.Service, AppRoute.Gestures, AppRoute.Draw)
+val screens = listOf(AppRoute.Flow, AppRoute.Service, AppRoute.Gestures, AppRoute.Draw, AppRoute.Editor)
 
 val gesturesScreens = listOf(AppRoute.TransformImage, AppRoute.TransformCanvas)

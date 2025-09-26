@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:padding="12dp">
+
+    <LinearLayout
+        android:orientation="vertical"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <TextView
+            android:id="@+id/tvH1"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="H1"
+            android:textStyle="bold"
+            android:textColor="@android:color/darker_gray"
+            android:visibility="gone"/>
+
+        <EditText
+            android:id="@+id/etParagraph"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minLines="1"
+            android:gravity="top|start"
+            android:inputType="textMultiLine|textCapSentences"
+            android:background="@android:color/transparent"
+            android:hint="내용을 입력하세요"/>
+    </LinearLayout>
+</FrameLayout>

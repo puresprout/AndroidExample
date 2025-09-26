@@ -84,4 +84,7 @@ dependencies {
     implementation(libs.moshi)
     testImplementation(libs.mockk)
     implementation(libs.androidx.car.app)
+
+    implementation("com.github.bumptech.glide:glide:4.16.0")
+    implementation("org.jsoup:jsoup:1.18.1")
 }

@@ -15,6 +15,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.navigation
 import com.purestation.androidexample.draw.DrawScreen
+import com.purestation.androidexample.editor.EditorScreen
 import com.purestation.androidexample.flow.FlowScreen
 import com.purestation.androidexample.gestures.GesturesHomeScreen
 import com.purestation.androidexample.gestures.TransformCanvasScreen
@@ -40,6 +41,9 @@ fun AppNavHost(navController: NavHostController, modifier: Modifier = Modifier) 
         }
         composable(AppRoute.Draw.route) {
             DrawScreen()
+        }
+        composable(AppRoute.Editor.route) {
+            EditorScreen()
         }
         composable(AppRoute.Chart.route) {
         }
