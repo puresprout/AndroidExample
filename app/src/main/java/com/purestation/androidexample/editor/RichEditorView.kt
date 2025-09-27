@@ -22,15 +22,14 @@ import java.util.Deque
 import kotlin.math.max
 
 /**
- * RichEditorView (분리 버전)
+ * Redo가 끊기지 않도록 suppressSnapshot 가드 적용 버전
  * - 툴바 HorizontalScrollView
  * - B/I/U 즉시 적용 + 선택영역 반영
  * - Undo/Redo: JSON 스냅샷
- * - 저장/불러오기: Html.toHtml/Html.fromHtml
+ * - 저장/불러오기: Html(어댑터 위임)
  * - 이미지/비디오/유튜브 행 규칙
  * - RecyclerView + Drag&Drop
  * - Glide 사용 (EditorAdapter 내부)
- * - 전부 코드 생성(XML 無)
  */
 class RichEditorView @JvmOverloads constructor(
     context: Context,
@@ -45,14 +44,19 @@ class RichEditorView @JvmOverloads constructor(
     private var italicOn = false
     private var underlineOn = false
 
-    // JSON 스냅샷 기반 Undo/Redo
+    // Undo/Redo 스택
     private val undoStack: Deque<String> = ArrayDeque()
     private val redoStack: Deque<String> = ArrayDeque()
+
+    // Undo/Redo/불러오기 중 어댑터 onChanged로 인한 스냅샷 생성 차단
+    private var suppressSnapshot = false
 
     private val saveFileName = "editor.html"
 
     private val recyclerView = RecyclerView(context)
-    private val adapter = EditorAdapter(context) { snapshot() }
+    private val adapter = EditorAdapter(context) {
+        if (!suppressSnapshot) snapshot()
+    }
 
     private lateinit var boldBtn: ToggleButton
     private lateinit var italicBtn: ToggleButton
@@ -89,7 +93,7 @@ class RichEditorView @JvmOverloads constructor(
         helper.attachToRecyclerView(recyclerView)
 
         adapter.addTextRow()
-        snapshot()
+        snapshot() // 초기 상태 저장
     }
 
     fun setExternalPickers(
@@ -184,7 +188,7 @@ class RichEditorView @JvmOverloads constructor(
     private fun updateFocusTextBoldItalicUnderline() {
         val holder = adapter.currentFocusedTextHolder ?: return
         holder.applyTypingFlags(boldOn, italicOn, underlineOn)
-        // 토글 버튼 상태 동기화
+        // 토글 버튼 시각 상태 동기화
         boldBtn.isChecked = boldOn
         italicBtn.isChecked = italicOn
         underlineBtn.isChecked = underlineOn
@@ -196,13 +200,15 @@ class RichEditorView @JvmOverloads constructor(
         }
     }
 
-    // ---------- 스냅샷/Undo/Redo ----------
+    // ---------------- 스냅샷/Undo/Redo ----------------
     private fun snapshot() {
         val json = adapter.toJson()
-        if (undoStack.isEmpty() || undoStack.peek() != json) {
+        val willPush = undoStack.isEmpty() || undoStack.peek() != json
+        if (willPush) {
             undoStack.push(json)
+            // 새 사용자 변경이 발생했을 때만 redo 폐기
+            redoStack.clear()
         }
-        redoStack.clear()
     }
 
     private fun undo() {
@@ -210,17 +216,29 @@ class RichEditorView @JvmOverloads constructor(
         val current = undoStack.pop()
         redoStack.push(current)
         val prev = undoStack.peek()
-        adapter.fromJson(prev)
+
+        suppressSnapshot = true
+        try {
+            adapter.fromJson(prev) // onChanged()가 와도 snapshot() 차단됨
+        } finally {
+            suppressSnapshot = false
+        }
     }
 
     private fun redo() {
         if (redoStack.isEmpty()) return
         val next = redoStack.pop()
-        undoStack.push(next)
-        adapter.fromJson(next)
+        undoStack.push(next) // redo한 상태를 undo 스택에 쌓음
+
+        suppressSnapshot = true
+        try {
+            adapter.fromJson(next) // onChanged()가 와도 snapshot() 차단됨
+        } finally {
+            suppressSnapshot = false
+        }
     }
 
-    // ---------- 저장/불러오기 ----------
+    // ---------------- 저장/불러오기 ----------------
     private fun saveToFile() {
         val html = adapter.toHtml()
         context.openFileOutput(saveFileName, Context.MODE_PRIVATE).use {
@@ -242,9 +260,17 @@ class RichEditorView @JvmOverloads constructor(
                 }
             }
             val html = sb.toString()
-            adapter.fromHtml(html)
 
-            undoStack.clear(); redoStack.clear()
+            suppressSnapshot = true
+            try {
+                adapter.fromHtml(html) // 불러올 때 스냅샷 생성 차단
+            } finally {
+                suppressSnapshot = false
+            }
+
+            // 스택 초기화 및 현재 상태를 기준점으로 설정
+            undoStack.clear()
+            redoStack.clear()
             undoStack.push(adapter.toJson())
 
             Toast.makeText(context, "불러오기 완료", Toast.LENGTH_SHORT).show()
