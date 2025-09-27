@@ -1,412 +1,722 @@
 package com.purestation.androidexample.editor
 
-import android.content.ClipData
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
-import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.text.Editable
-import android.text.Selection
+import android.text.InputType
+import android.text.Spannable
 import android.text.SpannableStringBuilder
-import android.text.Spanned
-import android.text.method.LinkMovementMethod
+import android.text.TextWatcher
 import android.text.style.StyleSpan
 import android.text.style.UnderlineSpan
 import android.util.AttributeSet
+import android.util.TypedValue
 import android.view.Gravity
-import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
-import android.widget.GridLayout
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.updatePadding
+import android.widget.Toast
+import android.widget.ToggleButton
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
-import com.bumptech.glide.load.engine.DiskCacheStrategy
-import com.purestation.androidexample.R
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.util.ArrayDeque
+import java.util.Deque
 import kotlin.math.max
 
+/**
+ * 요구사항 요약
+ * - 최상단 툴바(패딩/마진 없이 꽉차게): B, I, U, 이미지, 동영상, 유튜브, Undo, Redo, 저장, 불러오기
+ * - 편집영역은 RecyclerView 사용 (LinearLayoutManager)
+ * - 최초 텍스트 행 1개
+ * - 이미지/비디오/유튜브 추가 시 해당 "행" 추가 후, 다음 행에 텍스트 행 자동 추가
+ * - 텍스트 행 입력 시 현재 툴바의 토글 상태(B/I/U)가 입력 문자에 적용
+ * - 행 Drag&Drop 이동
+ * - Glide 사용
+ * - 내부 고정 파일로 간단 HTML 저장/불러오기
+ */
 class RichEditorView @JvmOverloads constructor(
-    context: Context, attrs: AttributeSet? = null
-) : FrameLayout(context, attrs) {
+    context: Context,
+    attrs: AttributeSet? = null
+) : LinearLayout(context, attrs) {
 
-    private val recycler = RecyclerView(context)
-    private val adapter = BlocksAdapter()
-    private val undoRedo = UndoRedo()
+    // 외부(Compose)에서 호출할 선택기 콜백
+    private var onPickImages: (() -> Unit)? = null
+    private var onPickVideo: (() -> Unit)? = null
+    private var onPickYoutube: (() -> Unit)? = null
 
-    private fun dpInt(v: Int): Int = (v * resources.displayMetrics.density).toInt()
-    private fun dp(v: Float): Float = v * resources.displayMetrics.density
+    // 툴바 토글 상태
+    private var boldOn = false
+    private var italicOn = false
+    private var underlineOn = false
+
+    // Undo/Redo 스택: 간단히 HTML 스냅샷 기반
+    private val undoStack: Deque<String> = ArrayDeque()
+    private val redoStack: Deque<String> = ArrayDeque()
+
+    // 고정 파일명
+    private val saveFileName = "editor.html"
+
+    // RecyclerView & Adapter
+    private val recyclerView = RecyclerView(context)
+    private val adapter = EditorAdapter()
+
+    // 툴바 버튼(토글 상태 UI 반영용)
+    private lateinit var boldBtn: ToggleButton
+    private lateinit var italicBtn: ToggleButton
+    private lateinit var underlineBtn: ToggleButton
 
     init {
-        // 기존 코드들(recycler, layoutManager 등) 위/아래 아무 곳에 배치 가능
-        background = GradientDrawable().apply {
-//            setColor(Color.WHITE) // 안쪽 배경
-            cornerRadius = dp(8f)
-            setStroke(dpInt(1), Color.parseColor("#000000"))
-        }
-        setPadding(dpInt(8), dpInt(8), dpInt(8), dpInt(8)) // 테두리 안쪽 여백
+        orientation = VERTICAL
+        layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
 
-        // 레이아웃 매니저 필수
-        recycler.layoutManager = LinearLayoutManager(context)
+        // 툴바 구성
+        addView(buildToolbar())
 
-        recycler.adapter = adapter
-        recycler.itemAnimator = null
-        addView(recycler, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        // RecyclerView 구성
+        recyclerView.layoutParams = LayoutParams(
+            LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT
+        )
+        recyclerView.layoutManager = LinearLayoutManager(context)
+        recyclerView.adapter = adapter
+        addView(recyclerView)
 
-        val ith = ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(
-            ItemTouchHelper.UP or ItemTouchHelper.DOWN,
-            0
+        // Drag&Drop (세로 이동)
+        val helper = ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(
+            ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0
         ) {
             override fun onMove(
-                rv: RecyclerView, vh: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder
+                rv: RecyclerView,
+                vh: RecyclerView.ViewHolder,
+                target: RecyclerView.ViewHolder
             ): Boolean {
                 val from = vh.bindingAdapterPosition
                 val to = target.bindingAdapterPosition
-                val blocks = adapter.blocks
-                if (from in blocks.indices && to in blocks.indices) {
-                    val item = blocks.removeAt(from)
-                    blocks.add(to, item)
-                    adapter.notifyItemMoved(from, to)
-                    pushState()
-                    return true
-                }
-                return false
+                adapter.move(from, to)
+                return true
             }
-
-            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {}
-            override fun isLongPressDragEnabled(): Boolean = true
+            override fun onSwiped(vh: RecyclerView.ViewHolder, direction: Int) { /* no-op */ }
         })
-        ith.attachToRecyclerView(recycler)
+        helper.attachToRecyclerView(recyclerView)
 
-        ViewCompat.setOnApplyWindowInsetsListener(this) { v, insets ->
-            val sys = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
-            v.updatePadding(bottom = sys.bottom, left = sys.left, right = sys.right, top = sys.top)
-            insets
-        }
-
-        ViewCompat.setOnReceiveContentListener(recycler,
-            arrayOf("image/*", "video/*", "text/uri-list", "text/plain")) { _, payload ->
-            val clip = payload.clip
-            handleClipData(clip)
-            null
-        }
-
-        if (adapter.blocks.isEmpty()) adapter.blocks.add(Block.Paragraph())
-        adapter.notifyDataSetChanged()
-        pushState()
+        // 최초 텍스트 행 하나
+        adapter.addTextRow()
+        snapshot() // 초기 상태 저장
     }
 
-    fun getState(): EditorState = EditorState(adapter.blocks.toList())
-    fun setState(state: EditorState) {
-        adapter.blocks.clear()
-        adapter.blocks.addAll(state.blocks.map {
-            when (it) {
-                is Block.Paragraph -> Block.Paragraph(it.text.deepCopy(), it.isH1)
-                is Block.ImageGrid -> Block.ImageGrid(it.uris.toMutableList(), it.columns)
-                is Block.Video -> Block.Video(it.uri)
-                is Block.YouTube -> Block.YouTube(it.videoId)
-            }
-        })
-        adapter.notifyDataSetChanged()
-        pushState()
+    // Compose 쪽에서 런처/다이얼로그를 연결
+    fun setExternalPickers(
+        onPickImages: () -> Unit,
+        onPickVideo: () -> Unit,
+        onPickYoutube: () -> Unit
+    ) {
+        this.onPickImages = onPickImages
+        this.onPickVideo = onPickVideo
+        this.onPickYoutube = onPickYoutube
     }
 
-    fun toHtml(): String = HtmlIO.toHtml(getState())
-    fun fromHtml(html: String) = setState(HtmlIO.fromHtml(html))
-
-    fun addParagraph() {
-        adapter.blocks.add(Block.Paragraph())
-        adapter.notifyItemInserted(adapter.blocks.lastIndex)
-        recycler.scrollToPosition(adapter.blocks.lastIndex)
-        pushState()
-    }
-
+    // 외부에서 호출되는 추가 API
     fun addImages(uris: List<Uri>) {
         if (uris.isEmpty()) return
-        val cols = max(1, uris.size.coerceAtMost(3))
-        adapter.blocks.add(Block.ImageGrid(uris.toMutableList(), cols))
-        adapter.notifyItemInserted(adapter.blocks.lastIndex)
-        recycler.scrollToPosition(adapter.blocks.lastIndex)
-        pushState()
+        adapter.addImageRow(uris)
+        adapter.addTextRow(afterLast = true)
+        snapshot()
+        scrollToBottom()
     }
 
     fun addVideo(uri: Uri) {
-        adapter.blocks.add(Block.Video(uri))
-        adapter.notifyItemInserted(adapter.blocks.lastIndex)
-        recycler.scrollToPosition(adapter.blocks.lastIndex)
-        pushState()
+        adapter.addVideoRow(uri)
+        adapter.addTextRow(afterLast = true)
+        snapshot()
+        scrollToBottom()
     }
 
-    fun addYouTube(url: String) {
-        val id = extractYouTubeId(url) ?: return
-        adapter.blocks.add(Block.YouTube(id))
-        adapter.notifyItemInserted(adapter.blocks.lastIndex)
-        recycler.scrollToPosition(adapter.blocks.lastIndex)
-        pushState()
+    fun addYoutube(url: String) {
+        adapter.addYoutubeRow(url)
+        adapter.addTextRow(afterLast = true)
+        snapshot()
+        scrollToBottom()
     }
 
-    fun toggleBold() = withFocusedEditText { et ->
-        applySpanToggle<StyleSpan>(et) { StyleSpan(Typeface.BOLD) }
+    // 툴바 (패딩/마진 없이)
+    private fun buildToolbar(): View {
+        val bar = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            layoutParams = LayoutParams(
+                LayoutParams.MATCH_PARENT,
+                dp(48)
+            )
+            // padding/margin 없음 (요구사항)
+            setBackgroundColor(Color.parseColor("#EEEEEE"))
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        fun makeToggle(label: String, onChange: (Boolean) -> Unit): ToggleButton =
+            ToggleButton(context).apply {
+                textOn = label; textOff = label; text = label
+                layoutParams = LayoutParams(dp(48), dp(36))
+                setOnCheckedChangeListener { _, isChecked -> onChange(isChecked) }
+            }
+
+        fun makeBtn(label: String, onClick: () -> Unit): Button =
+            Button(context).apply {
+                text = label
+                layoutParams = LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)
+                )
+                setOnClickListener { onClick() }
+            }
+
+        boldBtn = makeToggle("B") { boldOn = it; updateFocusTextBoldItalicUnderline() }
+        italicBtn = makeToggle("I") { italicOn = it; updateFocusTextBoldItalicUnderline() }
+        underlineBtn = makeToggle("U") { underlineOn = it; updateFocusTextBoldItalicUnderline() }
+
+        val imgBtn = makeBtn("IMG") { onPickImages?.invoke() }
+        val vidBtn = makeBtn("VID") { onPickVideo?.invoke() }
+        val ytBtn = makeBtn("YTB") { onPickYoutube?.invoke() }
+        val undoBtn = makeBtn("Undo") { undo() }
+        val redoBtn = makeBtn("Redo") { redo() }
+        val saveBtn = makeBtn("Save") { saveToFile() }
+        val loadBtn = makeBtn("Load") { loadFromFile() }
+
+        bar.addView(boldBtn); bar.addView(italicBtn); bar.addView(underlineBtn)
+        bar.addView(imgBtn); bar.addView(vidBtn); bar.addView(ytBtn)
+        bar.addView(undoBtn); bar.addView(redoBtn); bar.addView(saveBtn); bar.addView(loadBtn)
+
+        return bar
     }
 
-    fun toggleItalic() = withFocusedEditText { et ->
-        applySpanToggle<StyleSpan>(et) { StyleSpan(Typeface.ITALIC) }
+    // 현재 포커스된 텍스트 행에 토글 상태를 적용 (키 입력 시에도 반영되도록)
+    private fun updateFocusTextBoldItalicUnderline() {
+        val holder = adapter.currentFocusedTextHolder ?: return
+        holder.applyTypingFlags(boldOn, italicOn, underlineOn)
     }
 
-    fun toggleUnderline() = withFocusedEditText { et ->
-        applySpanToggle<UnderlineSpan>(et) { UnderlineSpan() }
-    }
-
-    fun toggleH1() = withFocusedParagraph { p, pos ->
-        p.isH1 = !p.isH1
-        adapter.notifyItemChanged(pos)
-        pushState()
-    }
-
-    fun cycleImageGridColumns() {
-        val pos = adapter.focusedAdapterPos ?: return
-        val b = adapter.blocks.getOrNull(pos)
-        if (b is Block.ImageGrid) {
-            b.columns = when (b.columns) { 1 -> 2; 2 -> 3; else -> 1 }
-            adapter.notifyItemChanged(pos)
-            pushState()
+    private fun scrollToBottom() {
+        recyclerView.post {
+            recyclerView.scrollToPosition(max(0, adapter.itemCount - 1))
         }
     }
 
-    fun undo() {
-        val prev = undoRedo.popUndo(getState()) ?: return
-        setState(prev)
-    }
-
-    fun redo() {
-        val next = undoRedo.popRedo(getState()) ?: return
-        setState(next)
-    }
-
-    private fun pushState() = undoRedo.push(getState())
-
-    private fun withFocusedParagraph(block: (Block.Paragraph, Int) -> Unit) {
-        val pos = adapter.focusedAdapterPos ?: return
-        val b = adapter.blocks.getOrNull(pos)
-        if (b is Block.Paragraph) block(b, pos)
-    }
-
-    private fun withFocusedEditText(block: (EditText) -> Unit) {
-        val et = adapter.focusedEditText ?: return
-        block(et)
-        pushState()
-    }
-
-    private inline fun <reified T> applySpanToggle(et: EditText, newSpan: () -> Any) {
-        val s = et.text
-        val start = et.selectionStart
-        val end = et.selectionEnd
-        if (start == end) return
-        val spans = s.getSpans(start, end, T::class.java)
-        if (spans.isNotEmpty()) {
-            spans.forEach { s.removeSpan(it) }
-        } else {
-            s.setSpan(newSpan(), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    // Undo/Redo는 HTML 스냅샷 기반
+    private fun snapshot() {
+        val html = adapter.toHtml()
+        if (undoStack.isEmpty() || undoStack.peek() != html) {
+            undoStack.push(html)
         }
-        et.text = s // refresh
-        et.setSelection(start, end)
+        // 변경이 일어나면 redo는 비움
+        redoStack.clear()
     }
 
-    private fun handleClipData(clip: ClipData) {
-        val uris = mutableListOf<Uri>()
-        var youtube: String? = null
-        for (i in 0 until clip.itemCount) {
-            val item = clip.getItemAt(i)
-            item.uri?.let { uris.add(it) }
-            item.text?.toString()?.let { t ->
-                if (t.startsWith("http")) {
-                    if (isYouTubeUrl(t)) youtube = t
+    private fun undo() {
+        if (undoStack.size <= 1) return
+        val current = undoStack.pop()
+        redoStack.push(current)
+        val prev = undoStack.peek()
+        adapter.fromHtml(prev)
+    }
+
+    private fun redo() {
+        if (redoStack.isEmpty()) return
+        val next = redoStack.pop()
+        undoStack.push(next)
+        adapter.fromHtml(next)
+    }
+
+    private fun saveToFile() {
+        val html = adapter.toHtml()
+        context.openFileOutput(saveFileName, Context.MODE_PRIVATE).use {
+            it.write(html.toByteArray())
+        }
+        Toast.makeText(context, "저장 완료", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun loadFromFile() {
+        try {
+            val sb = StringBuilder()
+            context.openFileInput(saveFileName).use { fis ->
+                BufferedReader(InputStreamReader(fis)).use { br ->
+                    var line: String?
+                    while (true) {
+                        line = br.readLine() ?: break
+                        sb.append(line)
+                    }
                 }
             }
+            val html = sb.toString()
+            adapter.fromHtml(html)
+            // 불러오기도 스냅샷 반영
+            undoStack.clear(); redoStack.clear()
+            undoStack.push(html)
+            Toast.makeText(context, "불러오기 완료", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(context, "불러오기 실패: ${e.message}", Toast.LENGTH_SHORT).show()
         }
-        val imageUris = uris.filter { it.toString().contains("image") }
-        val videoUris = uris.filter { it.toString().contains("video") }
-        if (imageUris.isNotEmpty()) addImages(imageUris)
-        videoUris.forEach { addVideo(it) }
-        youtube?.let { addYouTube(it) }
     }
 
-    private fun isYouTubeUrl(url: String) =
-        url.contains("youtube.com") || url.contains("youtu.be")
+    private fun dp(v: Int): Int =
+        TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics
+        ).toInt()
 
-    private fun extractYouTubeId(url: String): String? {
-        val y1 = Regex("v=([A-Za-z0-9_-]{6,})").find(url)?.groupValues?.get(1)
-        val y2 = Regex("youtu\\.be/([A-Za-z0-9_-]{6,})").find(url)?.groupValues?.get(1)
-        return y1 ?: y2
+    // ---------------- RecyclerView 어댑터/행 구현 ----------------
+
+    private sealed class Row {
+        data class TextRow(var text: SpannableStringBuilder = SpannableStringBuilder("")) : Row()
+        data class ImageRow(val items: List<ImageItem>) : Row() // 서브행 포함 표현
+        data class VideoRow(val uri: Uri, var thumb: Bitmap? = null) : Row()
+        data class YoutubeRow(val url: String, var thumbUrl: String? = null) : Row()
     }
 
-    inner class BlocksAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
-        val blocks: MutableList<Block> = mutableListOf()
-        var focusedEditText: EditText? = null
-        var focusedAdapterPos: Int? = null
+    private data class ImageItem(val uri: Uri, val isPortrait: Boolean)
 
-        override fun getItemViewType(position: Int): Int = when (blocks[position]) {
-            is Block.Paragraph -> 0
-            is Block.ImageGrid -> 1
-            is Block.Video -> 2
-            is Block.YouTube -> 3
+    private inner class EditorAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+
+        private val rows = mutableListOf<Row>()
+
+        // 현재 포커스된 텍스트 홀더(서식 토글 반영용)
+        var currentFocusedTextHolder: TextVH? = null
+
+        override fun getItemViewType(position: Int): Int = when (rows[position]) {
+            is Row.TextRow -> 0
+            is Row.ImageRow -> 1
+            is Row.VideoRow -> 2
+            is Row.YoutubeRow -> 3
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
             return when (viewType) {
-                0 -> ParagraphVH(
-                    LayoutInflater.from(parent.context)
-                        .inflate(R.layout.item_paragraph, parent, false)
-                )
-                1 -> ImageGridVH(FrameLayout(parent.context))
-                2 -> VideoVH(FrameLayout(parent.context))
-                else -> YoutubeVH(FrameLayout(parent.context))
+                0 -> TextVH(makeTextRowView(parent))
+                1 -> ImageVH(makeImageRowView(parent))
+                2 -> VideoVH(makeVideoRowView(parent))
+                else -> YoutubeVH(makeYoutubeRowView(parent))
             }
         }
-
-        override fun getItemCount(): Int = blocks.size
 
         override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
             when (holder) {
-                is ParagraphVH -> holder.bind(blocks[position] as Block.Paragraph, position)
-                is ImageGridVH -> holder.bind(blocks[position] as Block.ImageGrid, position)
-                is VideoVH -> holder.bind(blocks[position] as Block.Video, position)
-                is YoutubeVH -> holder.bind(blocks[position] as Block.YouTube, position)
+                is TextVH -> holder.bind(rows[position] as Row.TextRow)
+                is ImageVH -> holder.bind(rows[position] as Row.ImageRow)
+                is VideoVH -> holder.bind(rows[position] as Row.VideoRow)
+                is YoutubeVH -> holder.bind(rows[position] as Row.YoutubeRow)
             }
         }
 
-        inner class ParagraphVH(view: View) : RecyclerView.ViewHolder(view) {
-            private val et: EditText = view.findViewById(R.id.etParagraph)
-            private val tvH1: TextView = view.findViewById(R.id.tvH1)
+        override fun getItemCount(): Int = rows.size
 
-            fun bind(p: Block.Paragraph, pos: Int) {
-                et.setText(p.text)
-                et.text?.let { Selection.setSelection(it, it.length) }
-                et.movementMethod = LinkMovementMethod.getInstance()
-                et.textSize = if (p.isH1) 24f else 16f
-                tvH1.visibility = if (p.isH1) View.VISIBLE else View.GONE
+        fun addTextRow(afterLast: Boolean = false) {
+            val row = Row.TextRow()
+            if (afterLast) {
+                rows.add(row)
+                notifyItemInserted(rows.lastIndex)
+            } else {
+                rows.add(0, row)
+                notifyItemInserted(0)
+            }
+        }
 
-                et.setOnFocusChangeListener { _, hasFocus ->
-                    if (hasFocus) {
-                        focusedEditText = et
-                        focusedAdapterPos = bindingAdapterPosition
-                    } else if (focusedEditText == et) {
-                        focusedEditText = null
-                        focusedAdapterPos = null
+        fun addImageRow(uris: List<Uri>) {
+            // 이미지 방향 판별 후, portrait면 서브행에 2개까지, landscape면 1개씩
+            val items = uris.map { uri ->
+                ImageItem(uri, isPortrait(uri))
+            }
+            rows.add(Row.ImageRow(items))
+            notifyItemInserted(rows.lastIndex)
+        }
+
+        fun addVideoRow(uri: Uri) {
+            rows.add(Row.VideoRow(uri))
+            notifyItemInserted(rows.lastIndex)
+        }
+
+        fun addYoutubeRow(url: String) {
+            rows.add(Row.YoutubeRow(url))
+            notifyItemInserted(rows.lastIndex)
+        }
+
+        fun move(from: Int, to: Int) {
+            if (from == to) return
+            val row = rows.removeAt(from)
+            rows.add(to, row)
+            notifyItemMoved(from, to)
+            snapshot()
+        }
+
+        fun toHtml(): String {
+            val sb = StringBuilder()
+            sb.append("<div class='editor'>")
+            rows.forEach { row ->
+                when (row) {
+                    is Row.TextRow -> {
+                        val escaped = escapeHtml(row.text.toString())
+                        val spans = spansToInlineStyles(row.text)
+                        sb.append("<p>").append(spans.ifEmpty { escaped }).append("</p>")
+                    }
+                    is Row.ImageRow -> {
+                        sb.append("<div class='img-row'>")
+                        // 서브행 규칙: portrait 2개/행, landscape 1개/행
+                        var buffer = mutableListOf<ImageItem>()
+                        fun flush() {
+                            if (buffer.isEmpty()) return
+                            sb.append("<div class='sub'>")
+                            buffer.forEach { item ->
+                                sb.append("<img src='").append(item.uri).append("'/>")
+                            }
+                            sb.append("</div>")
+                            buffer = mutableListOf()
+                        }
+                        row.items.forEach { item ->
+                            val cap = if (item.isPortrait) 2 else 1
+                            buffer.add(item)
+                            if (buffer.size == cap) flush()
+                        }
+                        flush()
+                        sb.append("</div>")
+                    }
+                    is Row.VideoRow -> {
+                        sb.append("<div class='video' data-uri='")
+                            .append(row.uri).append("'></div>")
+                    }
+                    is Row.YoutubeRow -> {
+                        sb.append("<div class='youtube' data-url='")
+                            .append(escapeHtml(row.url)).append("'></div>")
                     }
                 }
-                et.addTextChangedListener(SimpleTextWatcher {
-                    p.text = SpannableStringBuilder(et.text)
-                })
             }
+            sb.append("</div>")
+            return sb.toString()
         }
 
-        inner class ImageGridVH(container: FrameLayout) : RecyclerView.ViewHolder(container) {
-            private val grid = GridLayout(container.context).apply {
-                columnCount = 1
+        fun fromHtml(html: String) {
+            rows.clear()
+            // 매우 단순한 파서 (데모용): 태그를 찾아 행으로 복원
+            var i = 0
+            while (i < html.length) {
+                when {
+                    html.startsWith("<p>", i, true) -> {
+                        val end = html.indexOf("</p>", i, true)
+                        val inner = if (end > i) html.substring(i + 3, end) else ""
+                        rows.add(Row.TextRow(SpannableStringBuilder(unescapeHtml(inner).stripHtmlStyles())))
+                        i = if (end > 0) end + 4 else html.length
+                    }
+                    html.startsWith("<div class='img-row'>", i, true) -> {
+                        val end = html.indexOf("</div>", i, true)
+                        val block = if (end > i) html.substring(i, end + 6) else ""
+                        val imgUris = Regex("<img src='(.*?)'/?>(?s)").findAll(block).map {
+                            Uri.parse(it.groupValues[1])
+                        }.toList()
+                        val items = imgUris.map { uri -> ImageItem(uri, isPortrait(uri)) }
+                        rows.add(Row.ImageRow(items))
+                        i = if (end > 0) end + 6 else html.length
+                    }
+                    html.startsWith("<div class='video'", i, true) -> {
+                        val m = Regex("data-uri='(.*?)'").find(html, i)
+                        val uri = m?.groupValues?.getOrNull(1)?.let(Uri::parse)
+                        if (uri != null) rows.add(Row.VideoRow(uri))
+                        val end = html.indexOf("</div>", i, true)
+                        i = if (end > 0) end + 6 else html.length
+                    }
+                    html.startsWith("<div class='youtube'", i, true) -> {
+                        val m = Regex("data-url='(.*?)'").find(html, i)
+                        val url = m?.groupValues?.getOrNull(1)
+                        if (!url.isNullOrBlank()) rows.add(Row.YoutubeRow(unescapeHtml(url)))
+                        val end = html.indexOf("</div>", i, true)
+                        i = if (end > 0) end + 6 else html.length
+                    }
+                    else -> i++
+                }
             }
+            notifyDataSetChanged()
+        }
+
+        // ---------------- 뷰홀더들 ----------------
+
+        // RichEditorView.EditorAdapter.TextVH 교체본
+        inner class TextVH(val container: LinearLayout) : RecyclerView.ViewHolder(container) {
+            private val editText = (container.getChildAt(0) as EditText)
+
+            private var localBold = false
+            private var localItalic = false
+            private var localUnderline = false
+
+            // 마지막 변경 구간 기록용
+            private var lastStart: Int = -1
+            private var lastCount: Int = 0
+            private var suppressWatcher = false
+
+            private val watcher = object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) { }
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    // 사용자가 입력/붙여넣기한 구간을 기록
+                    lastStart = start
+                    lastCount = count
+                }
+                override fun afterTextChanged(s: Editable?) {
+                    if (suppressWatcher) return
+                    // 새로 추가된 글자 범위에 현재 토글 상태의 span을 적용
+                    if (lastStart >= 0 && lastCount > 0 && s != null) {
+                        applyStyleSpans(s, lastStart, lastStart + lastCount, localBold, localItalic, localUnderline)
+                    }
+                    snapshot() // 변경 스냅샷
+                }
+            }
+
             init {
-                container.addView(grid, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-                container.setPadding(16, 16, 16, 16)
-                container.setBackgroundColor(Color.parseColor("#10101010"))
-                container.setOnClickListener {
-                    focusedAdapterPos = bindingAdapterPosition
+                editText.addTextChangedListener(watcher)
+                // 포커스 추적으로 현재 홀더를 어댑터에 등록
+                editText.setOnFocusChangeListener { _, hasFocus ->
+                    if (hasFocus) {
+                        currentFocusedTextHolder = this
+                        applyTypingFlags(boldOn, italicOn, underlineOn) // 툴바 상태 동기화
+                    } else if (currentFocusedTextHolder == this) {
+                        currentFocusedTextHolder = null
+                    }
                 }
             }
-            fun bind(g: Block.ImageGrid, pos: Int) {
-                grid.removeAllViews()
-                grid.columnCount = g.columns.coerceIn(1, 3)
-                val size = resources.displayMetrics.widthPixels / grid.columnCount - 24
-                g.uris.forEach { uri ->
-                    val iv = ImageView(grid.context).apply {
-                        layoutParams = ViewGroup.LayoutParams(size, size)
-                        scaleType = ImageView.ScaleType.CENTER_CROP
-                    }
-                    Glide.with(iv).load(uri)
-                        .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
-                        .into(iv)
-                    grid.addView(iv)
+
+            fun bind(row: Row.TextRow) {
+                // watcher 중복 반응 방지
+                suppressWatcher = true
+                editText.text = row.text
+                suppressWatcher = false
+            }
+
+            fun applyTypingFlags(b: Boolean, i: Boolean, u: Boolean) {
+                localBold = b; localItalic = i; localUnderline = u
+                // 툴바 토글 UI도 동기화
+                boldBtn.isChecked = b
+                italicBtn.isChecked = i
+                underlineBtn.isChecked = u
+                // 현재 선택 영역에도 즉시 반영(선택이 있는 경우)
+                val selStart = editText.selectionStart
+                val selEnd = editText.selectionEnd
+                if (selStart in 0..selEnd && selStart != selEnd) {
+                    suppressWatcher = true
+                    applyStyleSpans(editText.editableText, selStart, selEnd, b, i, u)
+                    suppressWatcher = false
                 }
+            }
+
+            private fun applyStyleSpans(
+                e: Editable,
+                start: Int,
+                end: Int,
+                bold: Boolean,
+                italic: Boolean,
+                underline: Boolean
+            ) {
+                if (start >= end) return
+                // 선택 구간에 중복으로 계속 같은 span이 늘어나는 걸 막고 싶다면
+                // 기존 span 정리 로직을 추가할 수 있음(데모는 간단 적용)
+                if (bold) e.setSpan(StyleSpan(Typeface.BOLD), start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                if (italic) e.setSpan(StyleSpan(Typeface.ITALIC), start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                if (underline) e.setSpan(UnderlineSpan(), start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
         }
 
-        inner class VideoVH(container: FrameLayout) : RecyclerView.ViewHolder(container) {
-            private val iv = ImageView(container.context).apply {
-                layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
-                adjustViewBounds = true
+        inner class ImageVH(val container: LinearLayout) : RecyclerView.ViewHolder(container) {
+            fun bind(row: Row.ImageRow) {
+                container.removeAllViews()
+                // 규칙: portrait 2개/행, landscape 1개/행
+                var buffer = mutableListOf<ImageItem>()
+                fun flush() {
+                    if (buffer.isEmpty()) return
+                    val sub = LinearLayout(container.context).apply {
+                        orientation = HORIZONTAL
+                        layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
+                        gravity = Gravity.CENTER
+                    }
+                    buffer.forEach { item ->
+                        val iv = ImageView(container.context).apply {
+                            layoutParams = LinearLayout.LayoutParams(0, dp(160), 1f).also {
+                                it.setMargins(dp(4), dp(4), dp(4), dp(4))
+                            }
+                            scaleType = ImageView.ScaleType.CENTER_CROP
+                        }
+                        Glide.with(iv).load(item.uri).into(iv)
+                        sub.addView(iv)
+                    }
+                    container.addView(sub)
+                    buffer = mutableListOf()
+                }
+
+                row.items.forEach { item ->
+                    val cap = if (item.isPortrait) 2 else 1
+                    buffer.add(item)
+                    if (buffer.size == cap) flush()
+                }
+                flush()
+            }
+        }
+
+        inner class VideoVH(val frame: FrameLayout) : RecyclerView.ViewHolder(frame) {
+            private val thumbnail = ImageView(frame.context).apply {
+                layoutParams = FrameLayout.LayoutParams(
+                    LayoutParams.MATCH_PARENT, dp(200)
+                )
                 scaleType = ImageView.ScaleType.CENTER_CROP
             }
-            private val play = TextView(container.context).apply {
+            private val play = TextView(frame.context).apply {
                 text = "▶"
-                textSize = 32f
+                textSize = 48f
                 setTextColor(Color.WHITE)
                 setShadowLayer(8f, 0f, 0f, Color.BLACK)
-                layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER)
+                layoutParams = FrameLayout.LayoutParams(
+                    LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER
+                )
             }
             init {
-                container.addView(iv)
-                container.addView(play)
-                container.setPadding(0, 8, 0, 8)
-                container.setOnClickListener { focusedAdapterPos = bindingAdapterPosition }
+                frame.removeAllViews()
+                frame.addView(thumbnail)
+                frame.addView(play)
             }
-            fun bind(v: Block.Video, pos: Int) {
-                val bmp = extractVideoFrame(itemView.context, v.uri)
-                if (bmp != null) iv.setImageBitmap(bmp) else iv.setImageResource(android.R.color.darker_gray)
+
+            fun bind(row: Row.VideoRow) {
+                // 썸네일 생성(로컬 retriever)
+                if (row.thumb == null) {
+                    row.thumb = createVideoThumbnail(row.uri)
+                }
+                row.thumb?.let { thumbnail.setImageBitmap(it) }
             }
         }
 
-        inner class YoutubeVH(container: FrameLayout) : RecyclerView.ViewHolder(container) {
-            private val iv = ImageView(container.context).apply {
-                layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
-                adjustViewBounds = true
+        inner class YoutubeVH(val container: LinearLayout) : RecyclerView.ViewHolder(container) {
+            private val thumb = ImageView(container.context).apply {
+                layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, dp(200))
                 scaleType = ImageView.ScaleType.CENTER_CROP
             }
-            private val badge = TextView(container.context).apply {
-                text = "YouTube"
-                setBackgroundColor(Color.RED)
-                setTextColor(Color.WHITE)
-                setPadding(12, 6, 12, 6)
-                layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.START)
+            private val urlText = TextView(container.context).apply {
+                layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
+                setPadding(dp(8), dp(4), dp(8), dp(12))
+                setTextColor(Color.DKGRAY)
+                textSize = 14f
             }
             init {
-                container.addView(iv)
-                container.addView(badge)
-                container.setPadding(0, 8, 0, 8)
-                container.setOnClickListener { focusedAdapterPos = bindingAdapterPosition }
+                container.removeAllViews()
+                container.addView(thumb)
+                container.addView(urlText)
             }
-            fun bind(y: Block.YouTube, pos: Int) {
-                val url = "https://img.youtube.com/vi/${y.videoId}/hqdefault.jpg"
-                Glide.with(iv).load(url).diskCacheStrategy(DiskCacheStrategy.AUTOMATIC).into(iv)
+            fun bind(row: Row.YoutubeRow) {
+                // 간단 썸네일 URL 파생 (youtube id 추출 -> img.youtube.com)
+                val id = extractYoutubeId(row.url)
+                val thumbUrl = id?.let { "https://img.youtube.com/vi/$it/hqdefault.jpg" }
+                row.thumbUrl = thumbUrl
+                Glide.with(thumb).load(thumbUrl).into(thumb)
+                urlText.text = row.url
             }
         }
+
+        // ---------------- 유틸 ----------------
+
+        private fun makeTextRowView(parent: ViewGroup): LinearLayout =
+            LinearLayout(parent.context).apply {
+                orientation = VERTICAL
+                layoutParams = RecyclerView.LayoutParams(
+                    RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT
+                )
+                val et = EditText(context).apply {
+                    layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
+                    setPadding(dp(12), dp(12), dp(12), dp(12))
+                    textSize = 16f
+                    inputType = InputType.TYPE_CLASS_TEXT or
+                            InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                            InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+                    minLines = 1
+                }
+                addView(et)
+            }
+
+        private fun makeImageRowView(parent: ViewGroup): LinearLayout =
+            LinearLayout(parent.context).apply {
+                orientation = VERTICAL
+                layoutParams = RecyclerView.LayoutParams(
+                    RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT
+                )
+            }
+
+        private fun makeVideoRowView(parent: ViewGroup): FrameLayout =
+            FrameLayout(parent.context).apply {
+                layoutParams = RecyclerView.LayoutParams(
+                    RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT
+                )
+            }
+
+        private fun makeYoutubeRowView(parent: ViewGroup): LinearLayout =
+            LinearLayout(parent.context).apply {
+                orientation = VERTICAL
+                layoutParams = RecyclerView.LayoutParams(
+                    RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT
+                )
+            }
+
+        private fun dp(v: Int): Int =
+            TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics
+            ).toInt()
     }
-}
 
-private fun extractVideoFrame(context: Context, uri: Uri): Bitmap? {
-    val mmr = MediaMetadataRetriever()
-    return try {
-        mmr.setDataSource(context, uri)
-        mmr.frameAtTime?.let { bmp ->
-            if (bmp.width > 1280) {
-                val ratio = 1280f / bmp.width
-                Bitmap.createScaledBitmap(bmp, 1280, (bmp.height * ratio).toInt(), true)
-            } else bmp
+    // ---------------- 도우미 함수들 ----------------
+
+    private fun isPortrait(uri: Uri): Boolean {
+        return try {
+            context.contentResolver.openInputStream(uri).use { input ->
+                val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                android.graphics.BitmapFactory.decodeStream(input, null, opts)
+                val w = opts.outWidth; val h = opts.outHeight
+                h >= w // 세로형(같으면 세로 취급)
+            }
+        } catch (_: Exception) { true }
+    }
+
+    private fun createVideoThumbnail(uri: Uri): Bitmap? {
+        return try {
+            val retriever = android.media.MediaMetadataRetriever()
+            retriever.setDataSource(context, uri)
+            val bmp = retriever.frameAtTime
+            retriever.release()
+            bmp
+        } catch (_: Exception) { null }
+    }
+
+    private fun extractYoutubeId(url: String): String? {
+        val patterns = listOf(
+            "v=([\\w-]{11})",
+            "youtu\\.be/([\\w-]{11})",
+            "youtube\\.com/embed/([\\w-]{11})"
+        )
+        for (p in patterns) {
+            val m = Regex(p).find(url)
+            if (m != null) return m.groupValues[1]
         }
-    } catch (_: Exception) { null } finally { mmr.release() }
-}
+        return null
+    }
 
-private class SimpleTextWatcher(val onChange: () -> Unit) : android.text.TextWatcher {
-    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-    override fun afterTextChanged(s: Editable?) { onChange() }
+    private fun escapeHtml(s: String): String =
+        s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;")
+
+    private fun unescapeHtml(s: String): String =
+        s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&amp;", "&")
+
+    // 아주 단순: <b>, <i>, <u>등을 무시하고 텍스트만 복원
+    private fun String.stripHtmlStyles(): String =
+        this.replace(Regex("<.*?>"), "")
+
+    // Spannable -> 간단 인라인 스타일로 변환(데모용)
+    private fun spansToInlineStyles(spannable: SpannableStringBuilder): String {
+        // 실제 서비스에서는 HTML 변환 라이브러리 사용 추천
+        val plain = escapeHtml(spannable.toString())
+        // 데모 간소화: 실제 span 정보를 정교하게 반영하려면 Run을 순회해야 함
+        return plain
+    }
 }
