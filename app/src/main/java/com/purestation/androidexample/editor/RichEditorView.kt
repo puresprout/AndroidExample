@@ -7,9 +7,11 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.net.Uri
 import android.text.Editable
+import android.text.Html
 import android.text.InputType
 import android.text.Spannable
 import android.text.SpannableStringBuilder
+import android.text.Spanned
 import android.text.TextWatcher
 import android.text.style.StyleSpan
 import android.text.style.UnderlineSpan
@@ -37,6 +39,17 @@ import java.util.ArrayDeque
 import java.util.Deque
 import kotlin.math.max
 
+/**
+ * 수정본 RichEditorView
+ * - 툴바 HorizontalScrollView 적용(모든 버튼 노출)
+ * - B/I/U 입력 즉시 적용 + 선택 영역 즉시 반영
+ * - Undo/Redo: JSON 스냅샷(서식 유지)
+ * - 저장/불러오기: Html.toHtml/Html.fromHtml로 줄바꿈/서식 보존
+ * - 이미지/비디오/유튜브 행 규칙 유지
+ * - RecyclerView + LinearLayoutManager + Drag&Drop
+ * - Glide 사용
+ * - XML 미사용(전부 코드 생성)
+ */
 class RichEditorView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
@@ -50,7 +63,7 @@ class RichEditorView @JvmOverloads constructor(
     private var italicOn = false
     private var underlineOn = false
 
-    // ★ JSON 스냅샷 기반 Undo/Redo
+    // JSON 스냅샷 기반 Undo/Redo
     private val undoStack: Deque<String> = ArrayDeque()
     private val redoStack: Deque<String> = ArrayDeque()
 
@@ -67,10 +80,8 @@ class RichEditorView @JvmOverloads constructor(
         orientation = VERTICAL
         layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
 
-        // 툴바(가로 스크롤 가능)
         addView(buildToolbar())
 
-        // 편집 영역 RecyclerView
         recyclerView.layoutParams = LayoutParams(
             LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT
         )
@@ -78,7 +89,6 @@ class RichEditorView @JvmOverloads constructor(
         recyclerView.adapter = adapter
         addView(recyclerView)
 
-        // Drag&Drop
         val helper = ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(
             ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0
         ) {
@@ -96,7 +106,6 @@ class RichEditorView @JvmOverloads constructor(
         })
         helper.attachToRecyclerView(recyclerView)
 
-        // 최초 텍스트 행 및 초기 스냅샷
         adapter.addTextRow()
         snapshot()
     }
@@ -201,7 +210,7 @@ class RichEditorView @JvmOverloads constructor(
         }
     }
 
-    // ★ JSON 스냅샷
+    // JSON 스냅샷
     private fun snapshot() {
         val json = adapter.toJson()
         if (undoStack.isEmpty() || undoStack.peek() != json) {
@@ -248,7 +257,6 @@ class RichEditorView @JvmOverloads constructor(
             val html = sb.toString()
             adapter.fromHtml(html)
 
-            // HTML로 복원 → 현재 상태를 JSON 스냅샷으로 초기화
             undoStack.clear(); redoStack.clear()
             undoStack.push(adapter.toJson())
 
@@ -343,15 +351,18 @@ class RichEditorView @JvmOverloads constructor(
             snapshot()
         }
 
-        // ---------- HTML (저장/불러오기 용 - 단순형) ----------
+        // ---------- HTML (저장/불러오기) ----------
         fun toHtml(): String {
             val sb = StringBuilder()
             sb.append("<div class='editor'>")
             rows.forEach { row ->
                 when (row) {
                     is Row.TextRow -> {
-                        val spans = spansToInlineStyles(row.text) // 단순 변환(필요시 고도화)
-                        sb.append("<p>").append(spans).append("</p>")
+                        // 스팬/줄바꿈을 HTML로 보존
+                        val htmlText = Html.toHtml(
+                            row.text, Html.TO_HTML_PARAGRAPH_LINES_CONSECUTIVE
+                        )
+                        sb.append("<div class='text'>").append(htmlText).append("</div>")
                     }
                     is Row.ImageRow -> {
                         sb.append("<div class='img-row'>")
@@ -392,39 +403,49 @@ class RichEditorView @JvmOverloads constructor(
             var i = 0
             while (i < html.length) {
                 when {
-                    html.startsWith("<p>", i, true) -> {
-                        val end = html.indexOf("</p>", i, true)
-                        val inner = if (end > i) html.substring(i + 3, end) else ""
-                        rows.add(Row.TextRow(SpannableStringBuilder(unescapeHtml(inner).stripHtmlStyles())))
+                    // 새 포맷: <div class='text'> ... </div>
+                    html.regionMatches(i, "<div class='text'>", 0, "<div class='text'>".length, ignoreCase = true) -> {
+                        val end = html.indexOf("</div>", i, ignoreCase = true)
+                        val inner = if (end > i) html.substring(i + "<div class='text'>".length, end) else ""
+                        val spanned: Spanned = Html.fromHtml(inner, Html.FROM_HTML_MODE_LEGACY)
+                        rows.add(Row.TextRow(SpannableStringBuilder(spanned)))
+                        i = if (end > 0) end + 6 else html.length
+                    }
+                    // 구버전 폴백: <p> ... </p>
+                    html.regionMatches(i, "<p>", 0, 3, ignoreCase = true) -> {
+                        val end = html.indexOf("</p>", i, ignoreCase = true)
+                        val inner = if (end > i) html.substring(i, end + 4) else ""
+                        val spanned: Spanned = Html.fromHtml(inner, Html.FROM_HTML_MODE_LEGACY)
+                        rows.add(Row.TextRow(SpannableStringBuilder(spanned)))
                         i = if (end > 0) end + 4 else html.length
                     }
-                    html.startsWith("<div class='img-row'>", i, true) -> {
-                        val end = html.indexOf("</div>", i, true)
+                    html.regionMatches(i, "<div class='img-row'>", 0, "<div class='img-row'>".length, ignoreCase = true) -> {
+                        val end = html.indexOf("</div>", i, ignoreCase = true)
                         val block = if (end > i) html.substring(i, end + 6) else ""
-                        val imgUris = Regex("<img src='(.*?)'/?>(?s)").findAll(block).map {
-                            Uri.parse(it.groupValues[1])
-                        }.toList()
+                        val imgUris = Regex("<img src='(.*?)'/?>(?s)", RegexOption.IGNORE_CASE)
+                            .findAll(block).map { Uri.parse(it.groupValues[1]) }.toList()
                         val items = imgUris.map { uri -> ImageItem(uri, isPortrait(uri)) }
                         rows.add(Row.ImageRow(items))
                         i = if (end > 0) end + 6 else html.length
                     }
-                    html.startsWith("<div class='video'", i, true) -> {
-                        val m = Regex("data-uri='(.*?)'").find(html, i)
+                    html.regionMatches(i, "<div class='video'", 0, "<div class='video'".length, ignoreCase = true) -> {
+                        val m = Regex("data-uri='(.*?)'", RegexOption.IGNORE_CASE).find(html, i)
                         val uri = m?.groupValues?.getOrNull(1)?.let(Uri::parse)
                         if (uri != null) rows.add(Row.VideoRow(uri))
-                        val end = html.indexOf("</div>", i, true)
+                        val end = html.indexOf("</div>", i, ignoreCase = true)
                         i = if (end > 0) end + 6 else html.length
                     }
-                    html.startsWith("<div class='youtube'", i, true) -> {
-                        val m = Regex("data-url='(.*?)'").find(html, i)
+                    html.regionMatches(i, "<div class='youtube'", 0, "<div class='youtube'".length, ignoreCase = true) -> {
+                        val m = Regex("data-url='(.*?)'", RegexOption.IGNORE_CASE).find(html, i)
                         val url = m?.groupValues?.getOrNull(1)
                         if (!url.isNullOrBlank()) rows.add(Row.YoutubeRow(unescapeHtml(url)))
-                        val end = html.indexOf("</div>", i, true)
+                        val end = html.indexOf("</div>", i, ignoreCase = true)
                         i = if (end > 0) end + 6 else html.length
                     }
                     else -> i++
                 }
             }
+            if (rows.none { it is Row.TextRow }) rows.add(Row.TextRow())
             notifyDataSetChanged()
         }
 
@@ -439,25 +460,21 @@ class RichEditorView @JvmOverloads constructor(
                         obj.put("type", "text")
                         obj.put("text", row.text.toString())
                         val spansArr = org.json.JSONArray()
-                        // StyleSpan(BOLD/ITALIC)
                         val styleSpans = row.text.getSpans(0, row.text.length, StyleSpan::class.java)
                         for (sp in styleSpans) {
                             val st = row.text.getSpanStart(sp)
                             val en = row.text.getSpanEnd(sp)
                             if (st >= 0 && en > st) {
-                                val type = when (sp.style) {
-                                    Typeface.BOLD -> "b"
-                                    Typeface.ITALIC -> "i"
-                                    else -> null
-                                }
-                                type?.let {
-                                    spansArr.put(org.json.JSONObject().apply {
-                                        put("t", it); put("s", st); put("e", en)
+                                when (sp.style) {
+                                    Typeface.BOLD -> spansArr.put(org.json.JSONObject().apply {
+                                        put("t", "b"); put("s", st); put("e", en)
+                                    })
+                                    Typeface.ITALIC -> spansArr.put(org.json.JSONObject().apply {
+                                        put("t", "i"); put("s", st); put("e", en)
                                     })
                                 }
                             }
                         }
-                        // Underline
                         val ulSpans = row.text.getSpans(0, row.text.length, UnderlineSpan::class.java)
                         for (sp in ulSpans) {
                             val st = row.text.getSpanStart(sp)
@@ -577,7 +594,6 @@ class RichEditorView @JvmOverloads constructor(
                         applyStyleSpans(s, lastStart, lastStart + lastCount, localBold, localItalic, localUnderline)
                     }
 
-                    // 모델 동기화(스팬 포함)
                     boundRow?.text = SpannableStringBuilder(s ?: "")
 
                     snapshot()
@@ -609,7 +625,6 @@ class RichEditorView @JvmOverloads constructor(
                 italicBtn.isChecked = i
                 underlineBtn.isChecked = u
 
-                // 선택 영역이 있으면 즉시 적용
                 val selStart = editText.selectionStart
                 val selEnd = editText.selectionEnd
                 if (selStart in 0..selEnd && selStart != selEnd) {
@@ -756,7 +771,8 @@ class RichEditorView @JvmOverloads constructor(
         private fun makeVideoRowView(parent: ViewGroup): FrameLayout =
             FrameLayout(parent.context).apply {
                 layoutParams = RecyclerView.LayoutParams(
-                    RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT
+                    RecyclerView.LayoutParams.MATCH_PARENT,
+                    RecyclerView.LayoutParams.WRAP_CONTENT
                 )
             }
 
@@ -817,56 +833,4 @@ class RichEditorView @JvmOverloads constructor(
     private fun unescapeHtml(s: String): String =
         s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"")
             .replace("&#39;", "'").replace("&amp;", "&")
-
-    private fun String.stripHtmlStyles(): String =
-        this.replace(Regex("<.*?>"), "")
-
-    // 데모용 단순 변환(서식 완전 보존 원하면 고도화 필요)
-    private fun spansToInlineStyles(spannable: SpannableStringBuilder): String {
-        val s = spannable
-        val text = s.toString()
-        val sb = StringBuilder(text.length * 2)
-
-        data class Mark(val pos: Int, val open: Boolean, val tag: String)
-        val marks = mutableListOf<Mark>()
-
-        // Underline
-        val uSpans = s.getSpans(0, s.length, UnderlineSpan::class.java)
-        for (sp in uSpans) {
-            val st = s.getSpanStart(sp); val en = s.getSpanEnd(sp)
-            if (st in 0..s.length && en in 0..s.length && st < en) {
-                marks += Mark(st, true, "u"); marks += Mark(en, false, "u")
-            }
-        }
-        // Bold/Italic
-        val styleSpans = s.getSpans(0, s.length, StyleSpan::class.java)
-        for (sp in styleSpans) {
-            val st = s.getSpanStart(sp); val en = s.getSpanEnd(sp)
-            if (st in 0..s.length && en in 0..s.length && st < en) {
-                when (sp.style) {
-                    Typeface.BOLD -> { marks += Mark(st, true, "b"); marks += Mark(en, false, "b") }
-                    Typeface.ITALIC -> { marks += Mark(st, true, "i"); marks += Mark(en, false, "i") }
-                }
-            }
-        }
-
-        marks.sortWith(compareBy<Mark> { it.pos }.thenBy { !it.open })
-
-        var idx = 0
-        for (i in 0..text.length) {
-            while (idx < marks.size && marks[idx].pos == i && marks[idx].open) {
-                sb.append("<").append(marks[idx].tag).append(">")
-                idx++
-            }
-            if (i < text.length) {
-                val ch = text[i]
-                sb.append(escapeHtml(ch.toString()))
-            }
-            while (idx < marks.size && marks[idx].pos == i && !marks[idx].open) {
-                sb.append("</").append(marks[idx].tag).append(">")
-                idx++
-            }
-        }
-        return sb.toString()
-    }
 }
