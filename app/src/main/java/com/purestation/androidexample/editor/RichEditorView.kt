@@ -2,6 +2,7 @@ package com.purestation.androidexample.editor
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
 import android.net.Uri
@@ -36,44 +37,28 @@ import java.util.ArrayDeque
 import java.util.Deque
 import kotlin.math.max
 
-/**
- * 요구사항 요약
- * - 최상단 툴바(패딩/마진 없이 꽉차게): B, I, U, 이미지, 동영상, 유튜브, Undo, Redo, 저장, 불러오기
- * - 편집영역은 RecyclerView 사용 (LinearLayoutManager)
- * - 최초 텍스트 행 1개
- * - 이미지/비디오/유튜브 추가 시 해당 "행" 추가 후, 다음 행에 텍스트 행 자동 추가
- * - 텍스트 행 입력 시 현재 툴바의 토글 상태(B/I/U)가 입력 문자에 적용
- * - 행 Drag&Drop 이동
- * - Glide 사용
- * - 내부 고정 파일로 간단 HTML 저장/불러오기
- */
 class RichEditorView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
 ) : LinearLayout(context, attrs) {
 
-    // 외부(Compose)에서 호출할 선택기 콜백
     private var onPickImages: (() -> Unit)? = null
     private var onPickVideo: (() -> Unit)? = null
     private var onPickYoutube: (() -> Unit)? = null
 
-    // 툴바 토글 상태
     private var boldOn = false
     private var italicOn = false
     private var underlineOn = false
 
-    // Undo/Redo 스택: 간단히 HTML 스냅샷 기반
+    // ★ JSON 스냅샷 기반 Undo/Redo
     private val undoStack: Deque<String> = ArrayDeque()
     private val redoStack: Deque<String> = ArrayDeque()
 
-    // 고정 파일명
     private val saveFileName = "editor.html"
 
-    // RecyclerView & Adapter
     private val recyclerView = RecyclerView(context)
     private val adapter = EditorAdapter()
 
-    // 툴바 버튼(토글 상태 UI 반영용)
     private lateinit var boldBtn: ToggleButton
     private lateinit var italicBtn: ToggleButton
     private lateinit var underlineBtn: ToggleButton
@@ -82,10 +67,10 @@ class RichEditorView @JvmOverloads constructor(
         orientation = VERTICAL
         layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
 
-        // 툴바 구성
+        // 툴바(가로 스크롤 가능)
         addView(buildToolbar())
 
-        // RecyclerView 구성
+        // 편집 영역 RecyclerView
         recyclerView.layoutParams = LayoutParams(
             LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT
         )
@@ -93,7 +78,7 @@ class RichEditorView @JvmOverloads constructor(
         recyclerView.adapter = adapter
         addView(recyclerView)
 
-        // Drag&Drop (세로 이동)
+        // Drag&Drop
         val helper = ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(
             ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0
         ) {
@@ -107,16 +92,15 @@ class RichEditorView @JvmOverloads constructor(
                 adapter.move(from, to)
                 return true
             }
-            override fun onSwiped(vh: RecyclerView.ViewHolder, direction: Int) { /* no-op */ }
+            override fun onSwiped(vh: RecyclerView.ViewHolder, direction: Int) {}
         })
         helper.attachToRecyclerView(recyclerView)
 
-        // 최초 텍스트 행 하나
+        // 최초 텍스트 행 및 초기 스냅샷
         adapter.addTextRow()
-        snapshot() // 초기 상태 저장
+        snapshot()
     }
 
-    // Compose 쪽에서 런처/다이얼로그를 연결
     fun setExternalPickers(
         onPickImages: () -> Unit,
         onPickVideo: () -> Unit,
@@ -127,7 +111,6 @@ class RichEditorView @JvmOverloads constructor(
         this.onPickYoutube = onPickYoutube
     }
 
-    // 외부에서 호출되는 추가 API
     fun addImages(uris: List<Uri>) {
         if (uris.isEmpty()) return
         adapter.addImageRow(uris)
@@ -150,23 +133,17 @@ class RichEditorView @JvmOverloads constructor(
         scrollToBottom()
     }
 
-    // 툴바 (패딩/마진 없이)
     private fun buildToolbar(): View {
-        // 가로 스크롤 컨테이너
         val scroll = HorizontalScrollView(context).apply {
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, dp(48))
             isHorizontalScrollBarEnabled = true
-            isFillViewport = true   // 내부가 화면 폭보다 작아도 꽉 차게
-            // padding/margin 없음(요구사항)
+            isFillViewport = true
             setBackgroundColor(Color.parseColor("#EEEEEE"))
         }
-
-        // 실제 버튼을 담는 가로 LinearLayout
         val bar = LinearLayout(context).apply {
             orientation = HORIZONTAL
             layoutParams = LayoutParams(
-                LayoutParams.WRAP_CONTENT,
-                LayoutParams.MATCH_PARENT
+                LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT
             )
             gravity = Gravity.CENTER_VERTICAL
         }
@@ -175,7 +152,6 @@ class RichEditorView @JvmOverloads constructor(
         fun makeToggle(label: String, onChange: (Boolean) -> Unit): ToggleButton =
             ToggleButton(context).apply {
                 textOn = label; textOff = label; text = label
-                // 버튼이 너무 커지지 않도록 최소 폭만 지정, 높이는 툴바 높이에 맞춤
                 layoutParams = LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)
                 )
@@ -207,7 +183,6 @@ class RichEditorView @JvmOverloads constructor(
         val saveBtn = makeBtn("Save") { saveToFile() }
         val loadBtn = makeBtn("Load") { loadFromFile() }
 
-        // 순서대로 추가
         bar.addView(boldBtn); bar.addView(italicBtn); bar.addView(underlineBtn)
         bar.addView(imgBtn); bar.addView(vidBtn); bar.addView(ytBtn)
         bar.addView(undoBtn); bar.addView(redoBtn); bar.addView(saveBtn); bar.addView(loadBtn)
@@ -215,7 +190,6 @@ class RichEditorView @JvmOverloads constructor(
         return scroll
     }
 
-    // 현재 포커스된 텍스트 행에 토글 상태를 적용 (키 입력 시에도 반영되도록)
     private fun updateFocusTextBoldItalicUnderline() {
         val holder = adapter.currentFocusedTextHolder ?: return
         holder.applyTypingFlags(boldOn, italicOn, underlineOn)
@@ -227,13 +201,12 @@ class RichEditorView @JvmOverloads constructor(
         }
     }
 
-    // Undo/Redo는 HTML 스냅샷 기반
+    // ★ JSON 스냅샷
     private fun snapshot() {
-        val html = adapter.toHtml()
-        if (undoStack.isEmpty() || undoStack.peek() != html) {
-            undoStack.push(html)
+        val json = adapter.toJson()
+        if (undoStack.isEmpty() || undoStack.peek() != json) {
+            undoStack.push(json)
         }
-        // 변경이 일어나면 redo는 비움
         redoStack.clear()
     }
 
@@ -242,14 +215,14 @@ class RichEditorView @JvmOverloads constructor(
         val current = undoStack.pop()
         redoStack.push(current)
         val prev = undoStack.peek()
-        adapter.fromHtml(prev)
+        adapter.fromJson(prev)
     }
 
     private fun redo() {
         if (redoStack.isEmpty()) return
         val next = redoStack.pop()
         undoStack.push(next)
-        adapter.fromHtml(next)
+        adapter.fromJson(next)
     }
 
     private fun saveToFile() {
@@ -274,9 +247,11 @@ class RichEditorView @JvmOverloads constructor(
             }
             val html = sb.toString()
             adapter.fromHtml(html)
-            // 불러오기도 스냅샷 반영
+
+            // HTML로 복원 → 현재 상태를 JSON 스냅샷으로 초기화
             undoStack.clear(); redoStack.clear()
-            undoStack.push(html)
+            undoStack.push(adapter.toJson())
+
             Toast.makeText(context, "불러오기 완료", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             Toast.makeText(context, "불러오기 실패: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -288,22 +263,22 @@ class RichEditorView @JvmOverloads constructor(
             TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics
         ).toInt()
 
-    // ---------------- RecyclerView 어댑터/행 구현 ----------------
+    // ---------------- 데이터 모델 ----------------
 
     private sealed class Row {
         data class TextRow(var text: SpannableStringBuilder = SpannableStringBuilder("")) : Row()
-        data class ImageRow(val items: List<ImageItem>) : Row() // 서브행 포함 표현
+        data class ImageRow(val items: List<ImageItem>) : Row()
         data class VideoRow(val uri: Uri, var thumb: Bitmap? = null) : Row()
         data class YoutubeRow(val url: String, var thumbUrl: String? = null) : Row()
     }
 
     private data class ImageItem(val uri: Uri, val isPortrait: Boolean)
 
+    // ---------------- 어댑터 ----------------
+
     private inner class EditorAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
         private val rows = mutableListOf<Row>()
-
-        // 현재 포커스된 텍스트 홀더(서식 토글 반영용)
         var currentFocusedTextHolder: TextVH? = null
 
         override fun getItemViewType(position: Int): Int = when (rows[position]) {
@@ -345,10 +320,7 @@ class RichEditorView @JvmOverloads constructor(
         }
 
         fun addImageRow(uris: List<Uri>) {
-            // 이미지 방향 판별 후, portrait면 서브행에 2개까지, landscape면 1개씩
-            val items = uris.map { uri ->
-                ImageItem(uri, isPortrait(uri))
-            }
+            val items = uris.map { uri -> ImageItem(uri, isPortrait(uri)) }
             rows.add(Row.ImageRow(items))
             notifyItemInserted(rows.lastIndex)
         }
@@ -371,19 +343,18 @@ class RichEditorView @JvmOverloads constructor(
             snapshot()
         }
 
+        // ---------- HTML (저장/불러오기 용 - 단순형) ----------
         fun toHtml(): String {
             val sb = StringBuilder()
             sb.append("<div class='editor'>")
             rows.forEach { row ->
                 when (row) {
                     is Row.TextRow -> {
-                        val escaped = escapeHtml(row.text.toString())
-                        val spans = spansToInlineStyles(row.text)
-                        sb.append("<p>").append(spans.ifEmpty { escaped }).append("</p>")
+                        val spans = spansToInlineStyles(row.text) // 단순 변환(필요시 고도화)
+                        sb.append("<p>").append(spans).append("</p>")
                     }
                     is Row.ImageRow -> {
                         sb.append("<div class='img-row'>")
-                        // 서브행 규칙: portrait 2개/행, landscape 1개/행
                         var buffer = mutableListOf<ImageItem>()
                         fun flush() {
                             if (buffer.isEmpty()) return
@@ -418,7 +389,6 @@ class RichEditorView @JvmOverloads constructor(
 
         fun fromHtml(html: String) {
             rows.clear()
-            // 매우 단순한 파서 (데모용): 태그를 찾아 행으로 복원
             var i = 0
             while (i < html.length) {
                 when {
@@ -458,9 +428,129 @@ class RichEditorView @JvmOverloads constructor(
             notifyDataSetChanged()
         }
 
-        // ---------------- 뷰홀더들 ----------------
+        // ---------- JSON (Undo/Redo 스냅샷 전용) ----------
+        fun toJson(): String {
+            val root = org.json.JSONObject()
+            val arr = org.json.JSONArray()
+            rows.forEach { row ->
+                val obj = org.json.JSONObject()
+                when (row) {
+                    is Row.TextRow -> {
+                        obj.put("type", "text")
+                        obj.put("text", row.text.toString())
+                        val spansArr = org.json.JSONArray()
+                        // StyleSpan(BOLD/ITALIC)
+                        val styleSpans = row.text.getSpans(0, row.text.length, StyleSpan::class.java)
+                        for (sp in styleSpans) {
+                            val st = row.text.getSpanStart(sp)
+                            val en = row.text.getSpanEnd(sp)
+                            if (st >= 0 && en > st) {
+                                val type = when (sp.style) {
+                                    Typeface.BOLD -> "b"
+                                    Typeface.ITALIC -> "i"
+                                    else -> null
+                                }
+                                type?.let {
+                                    spansArr.put(org.json.JSONObject().apply {
+                                        put("t", it); put("s", st); put("e", en)
+                                    })
+                                }
+                            }
+                        }
+                        // Underline
+                        val ulSpans = row.text.getSpans(0, row.text.length, UnderlineSpan::class.java)
+                        for (sp in ulSpans) {
+                            val st = row.text.getSpanStart(sp)
+                            val en = row.text.getSpanEnd(sp)
+                            if (st >= 0 && en > st) {
+                                spansArr.put(org.json.JSONObject().apply {
+                                    put("t", "u"); put("s", st); put("e", en)
+                                })
+                            }
+                        }
+                        obj.put("spans", spansArr)
+                    }
+                    is Row.ImageRow -> {
+                        obj.put("type", "image")
+                        val items = org.json.JSONArray()
+                        row.items.forEach { it ->
+                            items.put(org.json.JSONObject().apply {
+                                put("uri", it.uri.toString())
+                                put("portrait", it.isPortrait)
+                            })
+                        }
+                        obj.put("items", items)
+                    }
+                    is Row.VideoRow -> {
+                        obj.put("type", "video")
+                        obj.put("uri", row.uri.toString())
+                    }
+                    is Row.YoutubeRow -> {
+                        obj.put("type", "youtube")
+                        obj.put("url", row.url)
+                    }
+                }
+                arr.put(obj)
+            }
+            root.put("rows", arr)
+            return root.toString()
+        }
 
-        // RichEditorView.EditorAdapter.TextVH 교체본 (모델 동기화 + 즉시 서식 적용 통합)
+        fun fromJson(json: String) {
+            rows.clear()
+            try {
+                val root = org.json.JSONObject(json)
+                val arr = root.getJSONArray("rows")
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    when (obj.getString("type")) {
+                        "text" -> {
+                            val text = obj.optString("text", "")
+                            val s = SpannableStringBuilder(text)
+                            val spansArr = obj.optJSONArray("spans") ?: org.json.JSONArray()
+                            for (j in 0 until spansArr.length()) {
+                                val sp = spansArr.getJSONObject(j)
+                                val t = sp.getString("t")
+                                val st = sp.getInt("s")
+                                val en = sp.getInt("e")
+                                if (st in 0..s.length && en in 0..s.length && st < en) {
+                                    when (t) {
+                                        "b" -> s.setSpan(StyleSpan(Typeface.BOLD), st, en, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                                        "i" -> s.setSpan(StyleSpan(Typeface.ITALIC), st, en, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                                        "u" -> s.setSpan(UnderlineSpan(), st, en, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                                    }
+                                }
+                            }
+                            rows.add(Row.TextRow(s))
+                        }
+                        "image" -> {
+                            val itemsArr = obj.getJSONArray("items")
+                            val list = mutableListOf<ImageItem>()
+                            for (j in 0 until itemsArr.length()) {
+                                val it = itemsArr.getJSONObject(j)
+                                val uri = Uri.parse(it.getString("uri"))
+                                val portrait = it.getBoolean("portrait")
+                                list.add(ImageItem(uri, portrait))
+                            }
+                            rows.add(Row.ImageRow(list))
+                        }
+                        "video" -> {
+                            rows.add(Row.VideoRow(Uri.parse(obj.getString("uri"))))
+                        }
+                        "youtube" -> {
+                            rows.add(Row.YoutubeRow(obj.getString("url")))
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                rows.clear()
+                rows.add(Row.TextRow())
+            }
+            notifyDataSetChanged()
+        }
+
+        // ---------- ViewHolder들 ----------
+
         inner class TextVH(val container: LinearLayout) : RecyclerView.ViewHolder(container) {
             private val editText = (container.getChildAt(0) as EditText)
 
@@ -475,7 +565,7 @@ class RichEditorView @JvmOverloads constructor(
             private var suppressWatcher = false
 
             private val watcher = object : TextWatcher {
-                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) { }
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                     lastStart = start
                     lastCount = count
@@ -483,16 +573,13 @@ class RichEditorView @JvmOverloads constructor(
                 override fun afterTextChanged(s: Editable?) {
                     if (suppressWatcher) return
 
-                    // 새로 입력/붙여넣기된 구간에 현재 토글 상태 적용
                     if (lastStart >= 0 && lastCount > 0 && s != null) {
                         applyStyleSpans(s, lastStart, lastStart + lastCount, localBold, localItalic, localUnderline)
                     }
 
-                    // ★ 핵심: EditText → 모델(Row.TextRow)로 즉시 반영
-                    // SpannableStringBuilder로 복사해 보관(스팬 포함)
+                    // 모델 동기화(스팬 포함)
                     boundRow?.text = SpannableStringBuilder(s ?: "")
 
-                    // 스냅샷 저장(undo/redo용)
                     snapshot()
                 }
             }
@@ -512,7 +599,6 @@ class RichEditorView @JvmOverloads constructor(
             fun bind(row: Row.TextRow) {
                 boundRow = row
                 suppressWatcher = true
-                // 모델의 텍스트(스팬 포함)를 EditText로 세팅
                 editText.text = SpannableStringBuilder(row.text)
                 suppressWatcher = false
             }
@@ -523,13 +609,12 @@ class RichEditorView @JvmOverloads constructor(
                 italicBtn.isChecked = i
                 underlineBtn.isChecked = u
 
-                // 선택 영역이 있을 때는 즉시 스타일 반영
+                // 선택 영역이 있으면 즉시 적용
                 val selStart = editText.selectionStart
                 val selEnd = editText.selectionEnd
                 if (selStart in 0..selEnd && selStart != selEnd) {
                     suppressWatcher = true
                     applyStyleSpans(editText.editableText, selStart, selEnd, b, i, u)
-                    // 모델도 함께 업데이트
                     boundRow?.text = SpannableStringBuilder(editText.editableText)
                     suppressWatcher = false
                     snapshot()
@@ -554,7 +639,6 @@ class RichEditorView @JvmOverloads constructor(
         inner class ImageVH(val container: LinearLayout) : RecyclerView.ViewHolder(container) {
             fun bind(row: Row.ImageRow) {
                 container.removeAllViews()
-                // 규칙: portrait 2개/행, landscape 1개/행
                 var buffer = mutableListOf<ImageItem>()
                 fun flush() {
                     if (buffer.isEmpty()) return
@@ -609,7 +693,6 @@ class RichEditorView @JvmOverloads constructor(
             }
 
             fun bind(row: Row.VideoRow) {
-                // 썸네일 생성(로컬 retriever)
                 if (row.thumb == null) {
                     row.thumb = createVideoThumbnail(row.uri)
                 }
@@ -634,7 +717,6 @@ class RichEditorView @JvmOverloads constructor(
                 container.addView(urlText)
             }
             fun bind(row: Row.YoutubeRow) {
-                // 간단 썸네일 URL 파생 (youtube id 추출 -> img.youtube.com)
                 val id = extractYoutubeId(row.url)
                 val thumbUrl = id?.let { "https://img.youtube.com/vi/$it/hqdefault.jpg" }
                 row.thumbUrl = thumbUrl
@@ -643,7 +725,7 @@ class RichEditorView @JvmOverloads constructor(
             }
         }
 
-        // ---------------- 유틸 ----------------
+        // ---------- Row별 뷰 생성 ----------
 
         private fun makeTextRowView(parent: ViewGroup): LinearLayout =
             LinearLayout(parent.context).apply {
@@ -692,15 +774,15 @@ class RichEditorView @JvmOverloads constructor(
             ).toInt()
     }
 
-    // ---------------- 도우미 함수들 ----------------
+    // ---------------- 유틸 ----------------
 
     private fun isPortrait(uri: Uri): Boolean {
         return try {
             context.contentResolver.openInputStream(uri).use { input ->
-                val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                android.graphics.BitmapFactory.decodeStream(input, null, opts)
+                val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeStream(input, null, opts)
                 val w = opts.outWidth; val h = opts.outHeight
-                h >= w // 세로형(같으면 세로 취급)
+                h >= w
             }
         } catch (_: Exception) { true }
     }
@@ -729,20 +811,62 @@ class RichEditorView @JvmOverloads constructor(
     }
 
     private fun escapeHtml(s: String): String =
-        s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;")
+        s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            .replace("\"", "&quot;").replace("'", "&#39;")
 
     private fun unescapeHtml(s: String): String =
-        s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&amp;", "&")
+        s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"")
+            .replace("&#39;", "'").replace("&amp;", "&")
 
-    // 아주 단순: <b>, <i>, <u>등을 무시하고 텍스트만 복원
     private fun String.stripHtmlStyles(): String =
         this.replace(Regex("<.*?>"), "")
 
-    // Spannable -> 간단 인라인 스타일로 변환(데모용)
+    // 데모용 단순 변환(서식 완전 보존 원하면 고도화 필요)
     private fun spansToInlineStyles(spannable: SpannableStringBuilder): String {
-        // 실제 서비스에서는 HTML 변환 라이브러리 사용 추천
-        val plain = escapeHtml(spannable.toString())
-        // 데모 간소화: 실제 span 정보를 정교하게 반영하려면 Run을 순회해야 함
-        return plain
+        val s = spannable
+        val text = s.toString()
+        val sb = StringBuilder(text.length * 2)
+
+        data class Mark(val pos: Int, val open: Boolean, val tag: String)
+        val marks = mutableListOf<Mark>()
+
+        // Underline
+        val uSpans = s.getSpans(0, s.length, UnderlineSpan::class.java)
+        for (sp in uSpans) {
+            val st = s.getSpanStart(sp); val en = s.getSpanEnd(sp)
+            if (st in 0..s.length && en in 0..s.length && st < en) {
+                marks += Mark(st, true, "u"); marks += Mark(en, false, "u")
+            }
+        }
+        // Bold/Italic
+        val styleSpans = s.getSpans(0, s.length, StyleSpan::class.java)
+        for (sp in styleSpans) {
+            val st = s.getSpanStart(sp); val en = s.getSpanEnd(sp)
+            if (st in 0..s.length && en in 0..s.length && st < en) {
+                when (sp.style) {
+                    Typeface.BOLD -> { marks += Mark(st, true, "b"); marks += Mark(en, false, "b") }
+                    Typeface.ITALIC -> { marks += Mark(st, true, "i"); marks += Mark(en, false, "i") }
+                }
+            }
+        }
+
+        marks.sortWith(compareBy<Mark> { it.pos }.thenBy { !it.open })
+
+        var idx = 0
+        for (i in 0..text.length) {
+            while (idx < marks.size && marks[idx].pos == i && marks[idx].open) {
+                sb.append("<").append(marks[idx].tag).append(">")
+                idx++
+            }
+            if (i < text.length) {
+                val ch = text[i]
+                sb.append(escapeHtml(ch.toString()))
+            }
+            while (idx < marks.size && marks[idx].pos == i && !marks[idx].open) {
+                sb.append("</").append(marks[idx].tag).append(">")
+                idx++
+            }
+        }
+        return sb.toString()
     }
 }
