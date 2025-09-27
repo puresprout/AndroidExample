@@ -17,45 +17,44 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 
-/**
- * RichEditorView를 감싸는 Composable
- * - rememberLauncherForActivityResult 사용
- * - var viewRef by remember 사용
- * - 유튜브 URL 입력용 간단 대화상자 포함
- */
 @Composable
 fun EditorScreen() {
+    // RichEditorView 참조를 저장하는 상태값
     var viewRef by remember { mutableStateOf<RichEditorView?>(null) }
 
-    // 이미지 멀티 선택 런처
+    // ---------------- 이미지 선택 런처 ----------------
+    // ActivityResultContracts.GetMultipleContents() → 여러 장 이미지 선택 가능
     val pickImagesLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents()
     ) { uris: List<Uri> ->
         if (uris.isNotEmpty()) {
-            viewRef?.addImages(uris)
+            viewRef?.addImages(uris)   // 선택된 이미지들을 RichEditorView에 추가
         }
     }
 
-    // 동영상 단일 선택 런처
+    // ---------------- 동영상 선택 런처 ----------------
+    // ActivityResultContracts.GetContent() → 단일 파일 선택
     val pickVideoLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
-        uri?.let { viewRef?.addVideo(it) }
+        uri?.let { viewRef?.addVideo(it) } // 선택된 동영상 추가
     }
 
+    // ---------------- 유튜브 다이얼로그 상태 ----------------
     var showYoutubeDialog by remember { mutableStateOf(false) }
     var youtubeUrl by remember { mutableStateOf("") }
 
     Column(Modifier.fillMaxSize()) {
-        // RichEditorView를 Compose에서 사용
+        // RichEditorView를 Compose에서 직접 사용 가능하도록 래핑
         RichEditorComposable(
-            onRequestPickImages = { pickImagesLauncher.launch("image/*") },
-            onRequestPickVideo = { pickVideoLauncher.launch("video/*") },
-            onRequestYoutube = { showYoutubeDialog = true },
-            onViewReady = { view -> viewRef = view }
+            onRequestPickImages = { pickImagesLauncher.launch("image/*") }, // 이미지 파일 선택
+            onRequestPickVideo = { pickVideoLauncher.launch("video/*") },   // 동영상 파일 선택
+            onRequestYoutube = { showYoutubeDialog = true },                // 유튜브 다이얼로그 열기
+            onViewReady = { view -> viewRef = view }                        // 뷰 초기화 시점에 참조 저장
         )
     }
 
+    // ---------------- 유튜브 URL 입력 다이얼로그 ----------------
     if (showYoutubeDialog) {
         AlertDialog(
             onDismissRequest = { showYoutubeDialog = false },
@@ -70,6 +69,7 @@ fun EditorScreen() {
             confirmButton = {
                 TextButton(
                     onClick = {
+                        // 입력한 URL이 비어있지 않으면 RichEditorView에 추가
                         if (youtubeUrl.isNotBlank()) viewRef?.addYoutube(youtubeUrl)
                         youtubeUrl = ""
                         showYoutubeDialog = false
@@ -87,25 +87,28 @@ fun EditorScreen() {
 }
 
 /**
- * AndroidView로 RichEditorView를 래핑
+ * RichEditorView를 AndroidView로 감싸서 Compose 환경에서 사용 가능하게 만드는 Composable
+ * - Compose 쪽에서 파일 선택 런처나 다이얼로그를 호출하기 위해 콜백 연결
  */
 @Composable
 fun RichEditorComposable(
-    onRequestPickImages: () -> Unit,
-    onRequestPickVideo: () -> Unit,
-    onRequestYoutube: () -> Unit,
-    onViewReady: (RichEditorView) -> Unit
+    onRequestPickImages: () -> Unit,   // 이미지 선택 요청 콜백
+    onRequestPickVideo: () -> Unit,   // 동영상 선택 요청 콜백
+    onRequestYoutube: () -> Unit,     // 유튜브 다이얼로그 요청 콜백
+    onViewReady: (RichEditorView) -> Unit // RichEditorView 생성 완료 시점 콜백
 ) {
     AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = { context ->
+            // RichEditorView 생성
             RichEditorView(context).apply {
-                // Compose 쪽 런처/다이얼로그를 호출하기 위해 콜백을 연결
+                // 외부 선택기(이미지, 동영상, 유튜브) 호출할 수 있도록 연결
                 setExternalPickers(
                     onPickImages = onRequestPickImages,
                     onPickVideo = onRequestPickVideo,
                     onPickYoutube = onRequestYoutube
                 )
+                // Compose 쪽에서 RichEditorView 참조할 수 있도록 전달
                 onViewReady(this)
             }
         }

@@ -21,16 +21,25 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 
+/**
+ * RecyclerView.Adapter를 상속받아
+ * 텍스트, 이미지, 비디오, 유튜브 링크 등을
+ * Row 단위로 표시/편집할 수 있는 에디터용 어댑터 클래스
+ */
 class EditorAdapter(
     private val context: Context,
-    /** 데이터 변경(Undo 스냅샷 등) 시 알림 */
+    /** 외부에서 데이터 변경을 감지할 수 있도록 콜백 제공 (Undo/Redo 등) */
     private val onChanged: () -> Unit
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
+    /** 실제 에디터에 표시될 Row 데이터 리스트 */
     private val rows = mutableListOf<Row>()
+
+    /** 현재 포커스를 가진 TextViewHolder (글자 입력 중인 에디트텍스트 추적용) */
     var currentFocusedTextHolder: TextVH? = null
         internal set
 
+    // ---------------- RecyclerView 필수 구현 ----------------
     override fun getItemViewType(position: Int): Int = when (rows[position]) {
         is Row.TextRow -> 0
         is Row.ImageRow -> 1
@@ -47,6 +56,7 @@ class EditorAdapter(
         }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+        // ViewHolder 타입별로 Row 데이터와 바인딩
         when (holder) {
             is TextVH -> holder.bind(rows[position] as Row.TextRow)
             is ImageVH -> holder.bind(rows[position] as Row.ImageRow)
@@ -57,7 +67,7 @@ class EditorAdapter(
 
     override fun getItemCount(): Int = rows.size
 
-    // ---------- 외부에서 사용하는 API ----------
+    // ---------------- 외부 API (Row 추가/이동) ----------------
     fun addTextRow(afterLast: Boolean = false) {
         val row = Row.TextRow()
         if (afterLast) {
@@ -89,6 +99,7 @@ class EditorAdapter(
         onChanged()
     }
 
+    /** Row 순서 이동 */
     fun move(from: Int, to: Int) {
         if (from == to) return
         val row = rows.removeAt(from)
@@ -97,7 +108,7 @@ class EditorAdapter(
         onChanged()
     }
 
-    // ---------- 직렬화/역직렬화 위임 ----------
+    // ---------------- 직렬화/역직렬화 ----------------
     fun toHtml(): String = EditorSerializer.toHtml(rows)
 
     fun fromHtml(html: String) {
@@ -119,7 +130,8 @@ class EditorAdapter(
         rows.addAll(newRows)
     }
 
-    // ---------- ViewHolder들 ----------
+    // ---------------- ViewHolder 정의 ----------------
+    /** 텍스트 입력 Row */
     inner class TextVH(val container: LinearLayout) : RecyclerView.ViewHolder(container) {
         private val editText = (container.getChildAt(0) as EditText)
 
@@ -132,17 +144,27 @@ class EditorAdapter(
         private var lastCount: Int = 0
         private var suppressWatcher = false
 
+        /** 텍스트 변경 감지 리스너 */
         private val watcher = object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                 lastStart = start
                 lastCount = count
             }
+
             override fun afterTextChanged(s: Editable?) {
                 if (suppressWatcher) return
 
+                // 입력된 텍스트에 스타일 적용
                 if (lastStart >= 0 && lastCount > 0 && s != null) {
-                    applyStyleSpans(s, lastStart, lastStart + lastCount, localBold, localItalic, localUnderline)
+                    applyStyleSpans(
+                        s,
+                        lastStart,
+                        lastStart + lastCount,
+                        localBold,
+                        localItalic,
+                        localUnderline
+                    )
                 }
                 boundRow?.text = SpannableStringBuilder(s ?: "")
                 onChanged()
@@ -150,6 +172,7 @@ class EditorAdapter(
         }
 
         init {
+            // 에디트텍스트에 리스너 부착
             editText.addTextChangedListener(watcher)
             editText.setOnFocusChangeListener { _, hasFocus ->
                 if (hasFocus) {
@@ -160,6 +183,7 @@ class EditorAdapter(
             }
         }
 
+        /** 데이터 바인딩 */
         fun bind(row: Row.TextRow) {
             boundRow = row
             suppressWatcher = true
@@ -167,7 +191,6 @@ class EditorAdapter(
             suppressWatcher = false
         }
 
-        /** 툴바 토글(B/I/U) 변경 시 호출 */
         fun applyTypingFlags(b: Boolean, i: Boolean, u: Boolean) {
             localBold = b; localItalic = i; localUnderline = u
 
@@ -187,30 +210,55 @@ class EditorAdapter(
             bold: Boolean, italic: Boolean, underline: Boolean
         ) {
             if (start >= end) return
-            if (bold) e.setSpan(StyleSpan(Typeface.BOLD), start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
-            if (italic) e.setSpan(StyleSpan(Typeface.ITALIC), start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
-            if (underline) e.setSpan(UnderlineSpan(), start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+            if (bold) e.setSpan(
+                StyleSpan(Typeface.BOLD),
+                start,
+                end,
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+            if (italic) e.setSpan(
+                StyleSpan(Typeface.ITALIC),
+                start,
+                end,
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+            if (underline) e.setSpan(
+                UnderlineSpan(),
+                start,
+                end,
+                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
         }
     }
 
+    /** 이미지 Row */
     inner class ImageVH(val container: LinearLayout) : RecyclerView.ViewHolder(container) {
         fun bind(row: Row.ImageRow) {
             container.removeAllViews()
             var buffer = mutableListOf<ImageItem>()
+
+            // 이미지들을 가로 레이아웃에 일정 개수만큼 묶어서 표시
             fun flush() {
                 if (buffer.isEmpty()) return
                 val sub = LinearLayout(container.context).apply {
                     orientation = LinearLayout.HORIZONTAL
                     layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
                     )
                     gravity = Gravity.CENTER
                 }
                 buffer.forEach { item ->
                     val iv = ImageView(container.context).apply {
-                        layoutParams = LinearLayout.LayoutParams(0, container.context.dp(160), 1f).also {
-                            it.setMargins(container.context.dp(4), container.context.dp(4), container.context.dp(4), container.context.dp(4))
-                        }
+                        layoutParams =
+                            LinearLayout.LayoutParams(0, container.context.dp(160), 1f).also {
+                                it.setMargins(
+                                    container.context.dp(4),
+                                    container.context.dp(4),
+                                    container.context.dp(4),
+                                    container.context.dp(4)
+                                )
+                            }
                         scaleType = ImageView.ScaleType.CENTER_CROP
                     }
                     Glide.with(iv).load(item.uri).into(iv)
@@ -220,6 +268,7 @@ class EditorAdapter(
                 buffer = mutableListOf()
             }
 
+            // 세로/가로 이미지 배치 규칙 적용
             row.items.forEach { item ->
                 val cap = if (item.isPortrait) 2 else 1
                 buffer.add(item)
@@ -229,6 +278,7 @@ class EditorAdapter(
         }
     }
 
+    /** 비디오 Row (썸네일 + 재생버튼 표시) */
     inner class VideoVH(val frame: FrameLayout) : RecyclerView.ViewHolder(frame) {
         private val thumbnail = ImageView(frame.context).apply {
             layoutParams = FrameLayout.LayoutParams(
@@ -242,9 +292,12 @@ class EditorAdapter(
             setTextColor(Color.WHITE)
             setShadowLayer(8f, 0f, 0f, Color.BLACK)
             layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
             )
         }
+
         init {
             frame.removeAllViews()
             frame.addView(thumbnail)
@@ -259,6 +312,7 @@ class EditorAdapter(
         }
     }
 
+    /** 유튜브 Row (썸네일 + URL 표시) */
     inner class YoutubeVH(val container: LinearLayout) : RecyclerView.ViewHolder(container) {
         private val thumb = ImageView(container.context).apply {
             layoutParams = LinearLayout.LayoutParams(
@@ -270,15 +324,22 @@ class EditorAdapter(
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
             )
-            setPadding(container.context.dp(8), container.context.dp(4), container.context.dp(8), container.context.dp(12))
+            setPadding(
+                container.context.dp(8),
+                container.context.dp(4),
+                container.context.dp(8),
+                container.context.dp(12)
+            )
             setTextColor(Color.DKGRAY)
             textSize = 14f
         }
+
         init {
             container.removeAllViews()
             container.addView(thumb)
             container.addView(urlText)
         }
+
         fun bind(row: Row.YoutubeRow) {
             val id = extractYoutubeId(row.url)
             val thumbUrl = id?.let { "https://img.youtube.com/vi/$it/hqdefault.jpg" }
@@ -288,7 +349,7 @@ class EditorAdapter(
         }
     }
 
-    // ---------- Row별 뷰 생성 ----------
+    // ---------------- Row별 뷰 생성 함수 ----------------
     private fun makeTextRowView(parent: ViewGroup): LinearLayout =
         LinearLayout(parent.context).apply {
             orientation = LinearLayout.VERTICAL
