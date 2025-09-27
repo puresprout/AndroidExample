@@ -20,6 +20,7 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -151,21 +152,35 @@ class RichEditorView @JvmOverloads constructor(
 
     // 툴바 (패딩/마진 없이)
     private fun buildToolbar(): View {
+        // 가로 스크롤 컨테이너
+        val scroll = HorizontalScrollView(context).apply {
+            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, dp(48))
+            isHorizontalScrollBarEnabled = true
+            isFillViewport = true   // 내부가 화면 폭보다 작아도 꽉 차게
+            // padding/margin 없음(요구사항)
+            setBackgroundColor(Color.parseColor("#EEEEEE"))
+        }
+
+        // 실제 버튼을 담는 가로 LinearLayout
         val bar = LinearLayout(context).apply {
             orientation = HORIZONTAL
             layoutParams = LayoutParams(
-                LayoutParams.MATCH_PARENT,
-                dp(48)
+                LayoutParams.WRAP_CONTENT,
+                LayoutParams.MATCH_PARENT
             )
-            // padding/margin 없음 (요구사항)
-            setBackgroundColor(Color.parseColor("#EEEEEE"))
             gravity = Gravity.CENTER_VERTICAL
         }
+        scroll.addView(bar)
 
         fun makeToggle(label: String, onChange: (Boolean) -> Unit): ToggleButton =
             ToggleButton(context).apply {
                 textOn = label; textOff = label; text = label
-                layoutParams = LayoutParams(dp(48), dp(36))
+                // 버튼이 너무 커지지 않도록 최소 폭만 지정, 높이는 툴바 높이에 맞춤
+                layoutParams = LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)
+                )
+                minWidth = dp(44)
+                isAllCaps = false
                 setOnCheckedChangeListener { _, isChecked -> onChange(isChecked) }
             }
 
@@ -175,6 +190,8 @@ class RichEditorView @JvmOverloads constructor(
                 layoutParams = LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)
                 )
+                minWidth = dp(44)
+                isAllCaps = false
                 setOnClickListener { onClick() }
             }
 
@@ -190,11 +207,12 @@ class RichEditorView @JvmOverloads constructor(
         val saveBtn = makeBtn("Save") { saveToFile() }
         val loadBtn = makeBtn("Load") { loadFromFile() }
 
+        // 순서대로 추가
         bar.addView(boldBtn); bar.addView(italicBtn); bar.addView(underlineBtn)
         bar.addView(imgBtn); bar.addView(vidBtn); bar.addView(ytBtn)
         bar.addView(undoBtn); bar.addView(redoBtn); bar.addView(saveBtn); bar.addView(loadBtn)
 
-        return bar
+        return scroll
     }
 
     // 현재 포커스된 텍스트 행에 토글 상태를 적용 (키 입력 시에도 반영되도록)
@@ -442,15 +460,16 @@ class RichEditorView @JvmOverloads constructor(
 
         // ---------------- 뷰홀더들 ----------------
 
-        // RichEditorView.EditorAdapter.TextVH 교체본
+        // RichEditorView.EditorAdapter.TextVH 교체본 (모델 동기화 + 즉시 서식 적용 통합)
         inner class TextVH(val container: LinearLayout) : RecyclerView.ViewHolder(container) {
             private val editText = (container.getChildAt(0) as EditText)
+
+            private var boundRow: Row.TextRow? = null
 
             private var localBold = false
             private var localItalic = false
             private var localUnderline = false
 
-            // 마지막 변경 구간 기록용
             private var lastStart: Int = -1
             private var lastCount: Int = 0
             private var suppressWatcher = false
@@ -458,27 +477,32 @@ class RichEditorView @JvmOverloads constructor(
             private val watcher = object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) { }
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                    // 사용자가 입력/붙여넣기한 구간을 기록
                     lastStart = start
                     lastCount = count
                 }
                 override fun afterTextChanged(s: Editable?) {
                     if (suppressWatcher) return
-                    // 새로 추가된 글자 범위에 현재 토글 상태의 span을 적용
+
+                    // 새로 입력/붙여넣기된 구간에 현재 토글 상태 적용
                     if (lastStart >= 0 && lastCount > 0 && s != null) {
                         applyStyleSpans(s, lastStart, lastStart + lastCount, localBold, localItalic, localUnderline)
                     }
-                    snapshot() // 변경 스냅샷
+
+                    // ★ 핵심: EditText → 모델(Row.TextRow)로 즉시 반영
+                    // SpannableStringBuilder로 복사해 보관(스팬 포함)
+                    boundRow?.text = SpannableStringBuilder(s ?: "")
+
+                    // 스냅샷 저장(undo/redo용)
+                    snapshot()
                 }
             }
 
             init {
                 editText.addTextChangedListener(watcher)
-                // 포커스 추적으로 현재 홀더를 어댑터에 등록
                 editText.setOnFocusChangeListener { _, hasFocus ->
                     if (hasFocus) {
                         currentFocusedTextHolder = this
-                        applyTypingFlags(boldOn, italicOn, underlineOn) // 툴바 상태 동기화
+                        applyTypingFlags(boldOn, italicOn, underlineOn)
                     } else if (currentFocusedTextHolder == this) {
                         currentFocusedTextHolder = null
                     }
@@ -486,25 +510,29 @@ class RichEditorView @JvmOverloads constructor(
             }
 
             fun bind(row: Row.TextRow) {
-                // watcher 중복 반응 방지
+                boundRow = row
                 suppressWatcher = true
-                editText.text = row.text
+                // 모델의 텍스트(스팬 포함)를 EditText로 세팅
+                editText.text = SpannableStringBuilder(row.text)
                 suppressWatcher = false
             }
 
             fun applyTypingFlags(b: Boolean, i: Boolean, u: Boolean) {
                 localBold = b; localItalic = i; localUnderline = u
-                // 툴바 토글 UI도 동기화
                 boldBtn.isChecked = b
                 italicBtn.isChecked = i
                 underlineBtn.isChecked = u
-                // 현재 선택 영역에도 즉시 반영(선택이 있는 경우)
+
+                // 선택 영역이 있을 때는 즉시 스타일 반영
                 val selStart = editText.selectionStart
                 val selEnd = editText.selectionEnd
                 if (selStart in 0..selEnd && selStart != selEnd) {
                     suppressWatcher = true
                     applyStyleSpans(editText.editableText, selStart, selEnd, b, i, u)
+                    // 모델도 함께 업데이트
+                    boundRow?.text = SpannableStringBuilder(editText.editableText)
                     suppressWatcher = false
+                    snapshot()
                 }
             }
 
@@ -517,8 +545,6 @@ class RichEditorView @JvmOverloads constructor(
                 underline: Boolean
             ) {
                 if (start >= end) return
-                // 선택 구간에 중복으로 계속 같은 span이 늘어나는 걸 막고 싶다면
-                // 기존 span 정리 로직을 추가할 수 있음(데모는 간단 적용)
                 if (bold) e.setSpan(StyleSpan(Typeface.BOLD), start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
                 if (italic) e.setSpan(StyleSpan(Typeface.ITALIC), start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
                 if (underline) e.setSpan(UnderlineSpan(), start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
