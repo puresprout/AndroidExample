@@ -398,6 +398,28 @@ class RichEditorView @JvmOverloads constructor(
             return sb.toString()
         }
 
+        // EditorAdapter 내부 아무 곳(예: fromHtml 위쪽)에 추가
+        // 시작 인덱스(start)는 "<div" 의 ' < ' 에 위치해야 함
+        private fun findMatchingDiv(html: String, start: Int): Int {
+            var i = start
+            var depth = 0
+            while (i < html.length) {
+                if (html.regionMatches(i, "<div", 0, 4, ignoreCase = true)) {
+                    depth++
+                    i += 4
+                    continue
+                }
+                if (html.regionMatches(i, "</div>", 0, 6, ignoreCase = true)) {
+                    depth--
+                    if (depth == 0) return i  // 짝이 맞는 닫힘 </div>의 시작 인덱스 반환
+                    i += 6
+                    continue
+                }
+                i++
+            }
+            return -1 // 못 찾은 경우
+        }
+
         fun fromHtml(html: String) {
             rows.clear()
             var i = 0
@@ -419,14 +441,24 @@ class RichEditorView @JvmOverloads constructor(
                         rows.add(Row.TextRow(SpannableStringBuilder(spanned)))
                         i = if (end > 0) end + 4 else html.length
                     }
+                    // EditorAdapter.fromHtml(...)의 "<div class='img-row'>" 분기 교체
                     html.regionMatches(i, "<div class='img-row'>", 0, "<div class='img-row'>".length, ignoreCase = true) -> {
-                        val end = html.indexOf("</div>", i, ignoreCase = true)
-                        val block = if (end > i) html.substring(i, end + 6) else ""
-                        val imgUris = Regex("<img src='(.*?)'/?>(?s)", RegexOption.IGNORE_CASE)
-                            .findAll(block).map { Uri.parse(it.groupValues[1]) }.toList()
+                        // ★ 중첩 매칭으로 img-row 전체 블록의 끝을 찾는다
+                        val endStart = findMatchingDiv(html, i)                // </div> 의 시작 인덱스
+                        val end = if (endStart >= 0) endStart + 6 else html.length  // 블록의 끝(</div> 포함)
+                        val block = html.substring(i, end)
+
+                        // 블록 전체에서 모든 <img src='...'> 수집 (서브행 개수와 무관하게 전부 추출)
+                        val imgUris = Regex("<img\\s+src='(.*?)'/?>(?s)", RegexOption.IGNORE_CASE)
+                            .findAll(block)
+                            .map { Uri.parse(it.groupValues[1]) }
+                            .toList()
+
+                        // 방향 다시 판별해서 ImageRow 구성(뷰에서 규칙대로 서브행 배치)
                         val items = imgUris.map { uri -> ImageItem(uri, isPortrait(uri)) }
                         rows.add(Row.ImageRow(items))
-                        i = if (end > 0) end + 6 else html.length
+
+                        i = end // 다음 파싱 위치로 이동
                     }
                     html.regionMatches(i, "<div class='video'", 0, "<div class='video'".length, ignoreCase = true) -> {
                         val m = Regex("data-uri='(.*?)'", RegexOption.IGNORE_CASE).find(html, i)
