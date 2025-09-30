@@ -11,7 +11,7 @@ interface AnalyticsService {
 // - "주입을 받는다"는 의미가 아니라, "이 생성자를 사용해 인스턴스를 제공(provide)해도 된다"는 의미
 class AnalyticsServiceImpl @Inject constructor() : AnalyticsService {
     override fun analyticsMethods() {
-        println("AnalyticsScreen")
+        println("analyticsMethods")
     }
 }
 

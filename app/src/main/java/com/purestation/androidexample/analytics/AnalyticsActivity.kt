@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
@@ -14,11 +15,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.purestation.androidexample.ui.theme.AndroidExampleTheme
 import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
 
 @AndroidEntryPoint
 class AnalyticsActivity : ComponentActivity() {
-    @Inject lateinit var analytics: AnalyticsService
+    // 화면회전시 ViewModel 매번 새로 생성. (ViewModel에 @HiltViewModel이 없는 생태일때)
+//    @Inject lateinit var viewModel: AnalyticsViewModel
+
+    // 화면회전시 ViewModel 유지. (ViewModel에 @HiltViewModel이 있는 생태일때)
+    // ViewModel이 의존하는 의존성이 없다면 @HiltViewModel이 없어도 됨
+    // 의존하는 의존성이 있는데 @HiltViewModel이 없으면 다음 오류 발생
+    // java.lang.RuntimeException: Cannot create an instance of class com.purestation.androidexample.analytics.AnalyticsViewModel
+    private val viewModel: AnalyticsViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,7 +48,9 @@ class AnalyticsActivity : ComponentActivity() {
     @Composable
     fun AnalyticsScreen(modifier: Modifier = Modifier) {
         Button(onClick = {
-            analytics.analyticsMethods()
+            println("AnalyticsActivity - $this@AnalyticsActivity")
+
+            viewModel.analytics()
         }, modifier = modifier.padding(16.dp)) {
             Text("AnalyticsService.analyticsMethods()")
         }
