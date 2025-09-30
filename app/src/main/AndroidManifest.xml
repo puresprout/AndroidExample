@@ -13,12 +13,17 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.AndroidExample">
+        <activity
+            android:name=".analytics.AnalyticsActivity"
+            android:exported="false"
+            android:label="@string/title_activity_analytics"
+            android:theme="@style/Theme.AndroidExample" />
+
         <service
             android:name=".service.LogService"
             android:enabled="true"
             android:exported="false"
             android:process=":logger" />
-
         <service
             android:name=".service.CountService"
             android:enabled="true"
