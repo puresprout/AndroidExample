@@ -1,7 +1,7 @@
 [versions]
 agp = "8.12.2"
 car-app = "1.7.0"
-kotlin = "2.0.21"
+kotlin = "2.2.20"
 coreKtx = "1.16.0"
 testCoreKtx = "1.7.0"
 junit = "4.13.2"
@@ -19,11 +19,18 @@ okhttpBom = "4.12.0"
 moshi = "1.15.2"
 mockk = "1.13.12"
 navigationCompose = "2.9.4"
+hilt = "2.57.2"
+
+# 앞부분 2.2.20 → KSP가 어떤 Kotlin 버전과 호환되는지 표시 (즉, kotlin = "2.2.20"과 맞춰야 함)
+# 뒷부분 2.0.3 → KSP 자체의 릴리스 버전
+ksp = "2.2.20-2.0.3"
 
 [libraries]
 androidx-car-app = { module = "androidx.car.app:app", version.ref = "car-app" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-test-core-ktx = { group = "androidx.test", name = "core-ktx", version.ref = "testCoreKtx" }
+hilt-android = { module = "com.google.dagger:hilt-android", version.ref = "hilt" }
+hilt-android-compiler = { module = "com.google.dagger:hilt-android-compiler", version.ref = "hilt" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
@@ -54,6 +61,8 @@ android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 android-library = { id = "com.android.library", version.ref = "agp" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+hilt-android = { id = "com.google.dagger.hilt.android", version.ref = "hilt"}
 
 # 버전 지정하면 오류
 # Error resolving plugin [id: 'org.jetbrains.kotlin.plugin.parcelize', version: '2.0.21']
